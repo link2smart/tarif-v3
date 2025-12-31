@@ -19,10 +19,12 @@
         .animate-fade { animation: fadeIn 0.5s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
+        /* Animation Bandeau Défilant */
         .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
         .marquee-content { display: inline-block; animation: marquee 30s linear infinite; }
         @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
         
+        /* Barres de progression stylisées */
         .bar-fill { transition: width 1s ease-in-out; }
     </style>
 </head>
@@ -59,8 +61,9 @@
         // Configuration PDF.js
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-        // --- CONFIGURATION STATIQUE ---
-        const HARDCODED_DBX_TOKEN = ""; 
+        // --- CONFIGURATION STATIQUE (DROPBOX UNIQUEMENT) ---
+        // Remplissez ceci pour une connexion automatique sur tous les appareils (Optionnel)
+        const HARDCODED_DBX_TOKEN = ""; // Ex: "sl.BHz..."
 
         // --- CITATIONS ---
         const QUOTES = [
@@ -76,6 +79,7 @@
             { text: "Soyez le changement que vous voulez voir dans le monde.", author: "Gandhi" }
         ];
 
+        // --- UTILITAIRES DE DELAI ---
         const delay = ms => new Promise(res => setTimeout(res, ms));
 
         // --- SERVICES DROPBOX AVEC RETRY ---
@@ -164,6 +168,7 @@
             } catch (e) { throw e; }
         };
 
+        // --- UTILITAIRES ---
         const extractJSON = (text) => {
             const firstBrace = text.indexOf('{');
             const lastBrace = text.lastIndexOf('}');
@@ -226,6 +231,7 @@
             const [syncLog, setSyncLog] = useState('');
             const [syncStatus, setSyncStatus] = useState('idle');
             const [showRestoreModal, setShowRestoreModal] = useState(false);
+            const [showConfigModal, setShowConfigModal] = useState(false); // Ajout variable manquante
             const [restoreToken, setRestoreToken] = useState('');
             const [isUploading, setIsUploading] = useState(false);
             const [showQuoteModal, setShowQuoteModal] = useState(false);

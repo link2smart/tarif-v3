@@ -666,6 +666,9 @@
             const addQuoteItem = () => {
                 if (!selectedProductForQuote) return;
                 
+                // Détection EXO vs Taxable (comme dans la recherche)
+                const isTaxable = selectedProductForQuote.name && (selectedProductForQuote.name.trim().startsWith('*') || selectedProductForQuote.name.trim().endsWith('*'));
+
                 const newItem = {
                     id: Date.now(),
                     name: selectedProductForQuote.name,
@@ -674,7 +677,8 @@
                     basePrice: quoteItemForm.price,
                     qty: quoteItemForm.qty,
                     discountVal: quoteItemForm.discountVal,
-                    discountType: quoteItemForm.discountType
+                    discountType: quoteItemForm.discountType,
+                    isTaxable: isTaxable // Stockage de l'info fiscale
                 };
 
                 setQuote(prev => ({ ...prev, items: [...prev.items, newItem] }));
@@ -766,9 +770,19 @@
                 });
 
                 // TOTALS CALCULATION
-                const totalHT = quote.items.reduce((acc, item) => acc + calculateLineTotal(item), 0);
-                const tva = totalHT * 0.20;
-                const totalTTC = totalHT * 1.20;
+                let totalHT = 0;
+                let totalTVA = 0;
+
+                quote.items.forEach(item => {
+                    const lineTotal = calculateLineTotal(item);
+                    totalHT += lineTotal;
+                    // TVA appliquee seulement si item taxable
+                    if(item.isTaxable) {
+                        totalTVA += lineTotal * 0.20;
+                    }
+                });
+
+                const totalTTC = totalHT + totalTVA;
 
                 // TOTALS BLOCK
                 const finalY = doc.lastAutoTable.finalY + 10;
@@ -781,7 +795,7 @@
                     startY: doc.lastAutoTable.finalY + 10,
                     body: [
                         ['Total HT', `${totalHT.toFixed(2)} DH`],
-                        ['TVA (20%)', `${tva.toFixed(2)} DH`],
+                        ['TVA (20%)', `${totalTVA.toFixed(2)} DH`],
                         ['Total TTC', `${totalTTC.toFixed(2)} DH`]
                     ],
                     theme: 'plain',
@@ -1334,7 +1348,7 @@
                                                     </div>
                                                 </div>
 
-                                                <div className="mb-6">
+                                                <div className="mb-4">
                                                     <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Remise / Majoration</label>
                                                     <div className="flex gap-2">
                                                         <input type="number" step="0.1" className="flex-1 p-2 border rounded-lg" placeholder="Valeur (ex: 10 ou -10)" value={quoteItemForm.discountVal} onChange={e => setQuoteItemForm({...quoteItemForm, discountVal: parseFloat(e.target.value)})} />
@@ -1344,6 +1358,19 @@
                                                         </select>
                                                     </div>
                                                     <p className="text-[10px] text-slate-400 mt-1">Valeur positive = Remise. Valeur négative (ex: -10) = Majoration.</p>
+                                                </div>
+
+                                                {/* NOUVEAU : Affichage Prix Net Instantané */}
+                                                <div className="bg-slate-100 p-3 rounded-xl border border-slate-200 mb-4 flex justify-between items-center">
+                                                    <span className="text-xs font-bold text-slate-500 uppercase">Prix Net Unitaire</span>
+                                                    <span className="font-bold text-lg text-slate-700">
+                                                        {(() => {
+                                                            let p = quoteItemForm.price;
+                                                            if(quoteItemForm.discountType === 'percent') p = p * (1 - quoteItemForm.discountVal/100);
+                                                            else p = p - quoteItemForm.discountVal;
+                                                            return p.toFixed(2);
+                                                        })()} DH
+                                                    </span>
                                                 </div>
 
                                                 <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-blue-100 mb-4">
@@ -1608,7 +1635,15 @@
                                                     {quote.items.map((item, i) => (
                                                         <div key={item.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white">
                                                             <div className="flex-1">
-                                                                <div className="font-bold text-slate-800">{item.name}</div>
+                                                                <div className="font-bold text-slate-800 flex items-center gap-2">
+                                                                    {item.name}
+                                                                    {/* NOUVEAU : Badge EXO ou TTC */}
+                                                                    {!item.isTaxable ? (
+                                                                        <span className="bg-green-100 text-green-700 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">EXO</span>
+                                                                    ) : (
+                                                                        <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">TVA 20%</span>
+                                                                    )}
+                                                                </div>
                                                                 <div className="text-xs text-slate-500">{item.packaging}</div>
                                                             </div>
                                                             <div className="flex items-center gap-6">
@@ -1647,9 +1682,18 @@
                                                             </div>
                                                         </div>
                                                         <div className="text-right">
-                                                            <div className="text-slate-500">TTC (20%)</div>
+                                                            <div className="text-slate-500">TTC</div>
                                                             <div className="font-black text-blue-600 text-xl">
-                                                                {(quote.items.reduce((acc, item) => acc + calculateLineTotal(item), 0) * 1.20).toFixed(2)} DH
+                                                                {(() => {
+                                                                    let totalHT = 0;
+                                                                    let totalTVA = 0;
+                                                                    quote.items.forEach(item => {
+                                                                        const line = calculateLineTotal(item);
+                                                                        totalHT += line;
+                                                                        if(item.isTaxable) totalTVA += line * 0.20;
+                                                                    });
+                                                                    return (totalHT + totalTVA).toFixed(2);
+                                                                })()} DH
                                                             </div>
                                                         </div>
                                                     </div>

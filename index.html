@@ -316,8 +316,9 @@
             
             // KEY FUNCTION : Utilise Nom + Emballage pour l'unicité
             const getKey = (p) => {
-                const n = p.name ? p.name.trim().toLowerCase() : "";
-                const pack = p.packaging ? p.packaging.trim().toLowerCase() : "";
+                // AMELIORATION: Suppression totale des espaces pour la comparaison (ex: "Produit A" == "ProduitA")
+                const n = p.name ? p.name.replace(/\s+/g, '').toLowerCase() : "";
+                const pack = p.packaging ? p.packaging.replace(/\s+/g, '').toLowerCase() : "";
                 return `${n}|${pack}`; // Séparateur pipe pour éviter les conflits
             };
 

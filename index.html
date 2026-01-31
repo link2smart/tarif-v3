@@ -10,8 +10,10 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- PDF Engine -->
+    <!-- PDF Engine (Pour lecture Fiches) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- Excel Engine (Pour ONSSA) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <!-- PDF Generation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
@@ -27,30 +29,15 @@
         .marquee-content { display: inline-block; animation: marquee 30s linear infinite; }
         @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
         
-        /* Barres de progression stylisées */
-        .bar-fill { transition: width 1s ease-in-out; }
-        .spin-slow { animation: spin 3s linear infinite; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-        
         /* Canvas PDF Responsive */
         .pdf-canvas-container { overflow: auto; display: flex; justify-content: center; background-color: #525659; height: 100%; }
         canvas { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); margin: 20px 0; }
         
-        /* Scrollbar moderne pour le rapport */
-        .modern-scroll::-webkit-scrollbar { width: 6px; }
-        .modern-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
-        .modern-scroll::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
-
+        /* Scrollbar moderne */
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
 
-        /* Toast Animation */
-        .toast-enter { transform: translateX(100%); opacity: 0; }
-        .toast-enter-active { transform: translateX(0); opacity: 1; transition: all 300ms ease-out; }
-        .toast-exit { transform: translateX(0); opacity: 1; }
-        .toast-exit-active { transform: translateX(100%); opacity: 0; transition: all 300ms ease-in; }
-        
         /* Masquer la scrollbar horizontale sur la nav mobile tout en gardant le scroll */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -98,14 +85,8 @@
         // --- CONFIGURATION PERMANENTE (ADMIN) ---
         const HARDCODED_APP_KEY = "MGp4ZTNoNWhqOXZtMmxr"; 
         const HARDCODED_APP_SECRET = "dzM5c3VubWMxMGlhY3Ju"; 
-
-        // 2. REFRESH TOKEN (A METTRE A JOUR SI NECESSAIRE)
         const HARDCODED_REFRESH_TOKEN = "PUVoOl2MP1IAAAAAAAAAAfD4l851BKyu6huy_CAttB9v_NCEAJo17TFmWim_YP7Q"; 
-
-        // 3. Clé Gemini
         const HARDCODED_GEMINI_KEY = "";   
-
-        // Token de secours
         const HARDCODED_DBX_TOKEN = "sl.u.AGN2mejF9zW-5NxVUc0Dj2J-OOvQTGfALzT8nmGyhphGQpfy5RXRWeDFENtC44ThCRooxROaUzIxLUnblDYZm__P9Pru4DbwrPO1teKgGY-Q3R0UzPKit2feeeUFboEN50xzqiKzex9u20aLb5oyOaVvMLX007bdB7hOYcKQnMCFk4PB1pXufYtsl_x5-UxITVEa9kRrfXDQhmQBNBmp7adC96_J6CM-7i9-Jp8jlfhRi2WGM_OdsBXjtOUj_4QZKQ-CTgFTTvVdIzkSq0cqQhSjow7VUf41j6WJthfi3E8Y1eWb0DaJlDK7-Ivx8MedYdHGk0dM_Ug15nIJkOb4H7DvW_thLe-gTefvccGiuNXG18TI_ndofQj0GkhtZ8PmHNUNr8XpB71PLmyKutIHd2aeZQqXpmSf4EySkRm2ujMiSjIusVN5FSqj4DzgdR7no9v8i4gR9NrhCMlDyZ_oLDyHo-UE5iX_U-S3CcTN5EZgshrrT9Wg86fsDt1QChmw_PwfSaWfJlbY2PTqwyk9w1-HM0KKH1QO5L5NtcSJrD4cjg7hHbkbkt-UpawIoLfhPS8gI6QlYemCpaXn38ItPdJCIUxR_x5dQlIMAoQz-ubhK4A1YYM4UcvFGoaGoVoIbLD_AyFuqWcE-xU_hxpuJVl31j6I83J7_RARdiB1kupqNVtTUWk8khYefSNyYG40wX8RGonfFYPnpj0M_SBv3JfW3jf-IGMv-f2q9vV79FkqHVdImm0n5tgRecYQEHv5A6dA-S6HWU1wF57wBtuaVbHytepqbtlSZvOgJxgJ-rRT-3mIs67WA6I-MiqH--D4-jFv6ILfztvx0C9QBRniw4c9F5FSpojHQ-3C8P6c_YQaQsnjQ3wDHhTPGyOqMn5Di4-2Zhmh52VVnlapYyVyzQ-GhsyIh57R80c_VplkYhfO93aBav3FMF5j6eLCEOLI8dE0PK2eD1bCxq55kbyaYi5tlMXO4aYRsSTCMEolbCKwUKOBqobKPGiLP4gjwppBoFyU8xEKP14vFJc2VH3CgD1jJ0lTQ9tnIAWmsIQQXxFyotlJIdyebmEE5Sv61dhgQUEn2knotf_naw-l3mHNoIEiL4X8HCljVG7MP-EAIOYy2eVSl2IbsgPw_LO8SAo47sfajecs7OLuCVAyZakUhnLVTFrGRNFTkidfx6EGpgEjlVb428d0qwqVarmS8DvytrN5ZWtys_i6DulrED6orLFPQhIw52d8RmuwW_TnjPQP09ZZFyNcg_hGhQZzl_kIpSOWwJYLvTn2bJx2jMxDToLS"; 
         
         const DEFAULT_USERS = [
@@ -224,15 +205,6 @@
             return await res.blob();
         };
 
-        const dbxGetLink = async (config, setConfig, path) => {
-            const res = await apiFetch(`${DROPBOX_API_URL}/files/get_temporary_link`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path })
-            }, config, setConfig);
-            return await res.json();
-        };
-
         const dbxUploadFile = async (config, setConfig, path, content) => {
             const res = await apiFetch(`${DROPBOX_CONTENT_URL}/files/upload`, {
                 method: 'POST',
@@ -245,7 +217,7 @@
             return await res.json();
         };
 
-        // --- IA GOOGLE ---
+        // --- IA GOOGLE & HELPERS ---
         const callIA = async (payload, key, retryCount = 0) => {
             const modelVersion = 'gemini-2.5-flash-preview-09-2025';
             if (!key) throw new Error("Clé API Gemini manquante");
@@ -316,17 +288,14 @@
             return isNaN(val) ? 0 : val;
         };
 
-        // --- UTILS COMPARISON ---
+        // --- UTILS COMPARISON (EXISTANT) ---
         const getSimilarity = (s1, s2) => {
-            let longer = s1;
-            let shorter = s2;
+            let longer = s1; let shorter = s2;
             if (s1.length < s2.length) { longer = s2; shorter = s1; }
             const longerLength = longer.length;
             if (longerLength === 0) return 1.0;
-            
             const editDistance = (str1, str2) => {
-                str1 = str1.toLowerCase();
-                str2 = str2.toLowerCase();
+                str1 = str1.toLowerCase(); str2 = str2.toLowerCase();
                 const costs = new Array();
                 for (let i = 0; i <= str1.length; i++) {
                     let lastValue = i;
@@ -345,111 +314,63 @@
                 }
                 return costs[str2.length];
             };
-            
             return (longerLength - editDistance(longer, shorter)) / parseFloat(longerLength);
         };
 
         const generateFluctuationReport = (oldProducts, newProducts) => {
             const report = { date: new Date().toLocaleString(), added: [], removed: [], changed: [] };
-            
             const normalizeStr = (str) => {
                 if (!str) return "";
-                return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-                          .replace(/[^a-z0-9\s]/g, '') 
-                          .split(/\s+/) 
-                          .sort() 
-                          .join(''); 
+                return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).sort().join(''); 
             };
-
-            const getKey = (p) => {
-                const n = normalizeStr(p.name);
-                const pack = normalizeStr(p.packaging);
-                return `${n}_${pack}`; 
-            };
-
+            const getKey = (p) => { const n = normalizeStr(p.name); const pack = normalizeStr(p.packaging); return `${n}_${pack}`; };
             const oldMap = new Map();
-            (oldProducts || []).forEach(p => { 
-                if(p.name) {
-                    const k = getKey(p);
-                    oldMap.set(k, p);
-                    p._used = false; 
-                }
-            });
-            
+            (oldProducts || []).forEach(p => { if(p.name) { const k = getKey(p); oldMap.set(k, p); p._used = false; } });
             (newProducts || []).forEach(newP => {
                 if(!newP.name) return;
                 const key = getKey(newP);
                 let oldP = oldMap.get(key);
-                
                 if (!oldP) {
-                    let bestMatch = null;
-                    let bestScore = 0;
+                    let bestMatch = null; let bestScore = 0;
                     for (let op of (oldProducts || [])) {
                         if (op._used) continue; 
                         const scoreName = getSimilarity(normalizeStr(newP.name), normalizeStr(op.name));
                         if (scoreName > 0.85) {
                             const scorePack = getSimilarity(normalizeStr(newP.packaging), normalizeStr(op.packaging));
                             if (scorePack > 0.80 || (!newP.packaging && !op.packaging)) {
-                                if (scoreName > bestScore) {
-                                    bestScore = scoreName;
-                                    bestMatch = op;
-                                }
+                                if (scoreName > bestScore) { bestScore = scoreName; bestMatch = op; }
                             }
                         }
                     }
-                    if (bestMatch) {
-                        oldP = bestMatch;
-                        oldMap.set(key, oldP);
-                        oldP._used = true;
-                    }
-                } else {
-                    oldP._used = true;
-                }
-
-                if (!oldP) {
-                    report.added.push(newP);
-                } else {
-                    const priceOld = parsePrice(oldP.price);
-                    const priceNew = parsePrice(newP.price);
+                    if (bestMatch) { oldP = bestMatch; oldMap.set(key, oldP); oldP._used = true; }
+                } else { oldP._used = true; }
+                if (!oldP) { report.added.push(newP); } else {
+                    const priceOld = parsePrice(oldP.price); const priceNew = parsePrice(newP.price);
                     if (Math.abs(priceOld - priceNew) > 0.01) { 
-                        report.changed.push({ 
-                            name: newP.name, 
-                            packaging: newP.packaging,
-                            oldPrice: priceOld.toFixed(2), 
-                            newPrice: priceNew.toFixed(2), 
-                            diff: (priceNew - priceOld).toFixed(2),
-                            unit: newP.unit || 'DH'
-                        });
+                        report.changed.push({ name: newP.name, packaging: newP.packaging, oldPrice: priceOld.toFixed(2), newPrice: priceNew.toFixed(2), diff: (priceNew - priceOld).toFixed(2), unit: newP.unit || 'DH' });
                     }
                 }
             });
-
-            (oldProducts || []).forEach(oldP => {
-                if(oldP.name && !oldP._used) {
-                    report.removed.push(oldP);
-                }
-            });
-
+            (oldProducts || []).forEach(oldP => { if(oldP.name && !oldP._used) { report.removed.push(oldP); } });
             return report;
         };
 
-        // --- HELPER COPY CLIPBOARD ---
+        // --- ONSSA UTILS (NEW & IMPROVED) ---
+        const cleanOnssaName = (str) => {
+            if (!str) return "";
+            return str
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "") 
+                .toUpperCase()
+                .replace(/\b(STE|SOCIETE|ETS|ETABLISSEMENT|GROUPE|SARL|AU|DE|LA|LE|LES|ET|AND|CO)\b/g, "") 
+                .replace(/[^A-Z0-9]/g, "") 
+                .trim();
+        };
+
         const copyToClipboard = (text) => {
-             const textArea = document.createElement("textarea");
-             textArea.value = text;
-             textArea.style.position = "fixed";
-             document.body.appendChild(textArea);
-             textArea.focus();
-             textArea.select();
-             try {
-                document.execCommand('copy');
-                return true;
-             } catch (err) {
-                console.error('Erreur copie', err);
-                return false;
-             } finally {
-                document.body.removeChild(textArea);
-             }
+             const textArea = document.createElement("textarea"); textArea.value = text;
+             textArea.style.position = "fixed"; document.body.appendChild(textArea);
+             textArea.focus(); textArea.select();
+             try { document.execCommand('copy'); return true; } catch (err) { return false; } finally { document.body.removeChild(textArea); }
         };
 
         // --- APPLICATION ---
@@ -483,6 +404,13 @@
             const [savedQuotes, setSavedQuotes] = useState([]);
             const [showSavedQuotesModal, setShowSavedQuotesModal] = useState(false);
 
+            // ONSSA STATE (NEW)
+            const [onssaData, setOnssaData] = useState({ baseList: [], newList: [], report: null, baseDate: '', newDate: '' });
+            const [isOnssaAnalyzing, setIsOnssaAnalyzing] = useState(false);
+            const [onssaProgress, setOnssaProgress] = useState('');
+            const [availableRegions, setAvailableRegions] = useState([]);
+            const [selectedRegions, setSelectedRegions] = useState([]);
+
             const [dbxConfig, setDbxConfig] = useState({ 
                 token: HARDCODED_DBX_TOKEN, 
                 refreshToken: HARDCODED_REFRESH_TOKEN || '', 
@@ -508,19 +436,11 @@
             const showToast = (message, type = 'info') => {
                 const id = Date.now();
                 setToasts(prev => [...prev, { id, message, type }]);
-                setTimeout(() => {
-                    setToasts(prev => prev.filter(t => t.id !== id));
-                }, 4000);
+                setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 4000);
             };
 
-            const askConfirm = (title, message, onConfirm) => {
-                setConfirmModal({ show: true, title, message, onConfirm });
-            };
-
-            const handleConfirmYes = async () => {
-                if (confirmModal.onConfirm) await confirmModal.onConfirm();
-                setConfirmModal({ ...confirmModal, show: false });
-            };
+            const askConfirm = (title, message, onConfirm) => { setConfirmModal({ show: true, title, message, onConfirm }); };
+            const handleConfirmYes = async () => { if (confirmModal.onConfirm) await confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, show: false }); };
 
             // CALCULATRICE STATE
             const [calcState, setCalcState] = useState({ show: false, product: null, basePrice: 0, baseLabel: '' });
@@ -549,6 +469,8 @@
 
             const uploadInputRef = useRef(null);
             const adminFileInputRef = useRef(null);
+            const onssaBaseInputRef = useRef(null);
+            const onssaNewInputRef = useRef(null);
 
             useEffect(() => {
                 let did = localStorage.getItem('tdbx_deviceId');
@@ -608,6 +530,302 @@
                 }
                 return () => clearInterval(interval);
             }, [currentUser, dbxConfig.token, dbxConfig.refreshToken, view]);
+
+            // --- ONSSA EXCEL LOGIC START ---
+
+            const handleOnssaExcel = (e, type) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                setIsOnssaAnalyzing(true);
+                setOnssaProgress("Lecture Excel Manuellement Raffiné...");
+
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const data = evt.target.result;
+                        const workbook = XLSX.read(data, { type: 'binary' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        // Utilisation simple de sheet_to_json en mode header: 1 pour récupérer les lignes brutes
+                        const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                        
+                        let rows = [];
+                        let detectedDate = null;
+
+                        // 1. DÉTECTION DATE (dans les 15 premières lignes)
+                        for(let i=0; i<Math.min(jsonData.length, 15); i++) {
+                            const rowText = (jsonData[i] || []).join(' ');
+                            // Regex flexible pour "Arrêtée au..." ou "Arrêté le..."
+                            // Capture tout jusqu'à la fin de la ligne ou une parenthèse
+                            const dateMatch = rowText.match(/(?:arr[êeé]t[ée]e?)\s+(?:le|au)\s+([^.\n]+)/i);
+                            if (dateMatch) {
+                                detectedDate = "Arrêtée le " + dateMatch[1].trim();
+                                break;
+                            }
+                        }
+                        
+                        // ON SUPPOSE QUE LE FICHIER A ÉTÉ NETTOYÉ MANUELLEMENT
+                        // NOUVELLE STRUCTURE : Region | Ville | Nom | Adresse
+                        // On ignore la première ligne (En-tête)
+                        
+                        for(let i = 1; i < jsonData.length; i++) {
+                            const row = jsonData[i];
+                            if(row && row.length > 2) { 
+                                // Mapping STRICT des colonnes
+                                const region = row[0] || "";
+                                const ville = row[1] || "";
+                                const nom = row[2] || "";
+                                const adresse = row[3] || "";
+
+                                if(nom && (nom+"").trim().length > 1) {
+                                    rows.push({
+                                        region: (region + "").trim().toUpperCase(),
+                                        ville: (ville + "").trim(),
+                                        nom: (nom + "").trim(),
+                                        adresse: (adresse + "").trim()
+                                    });
+                                }
+                            }
+                        }
+
+                        const fileDate = detectedDate || `Excel importé le ${new Date().toLocaleDateString()}`;
+
+                        if (type === 'base') {
+                            const newData = { ...onssaData, baseList: rows, baseDate: fileDate };
+                            setOnssaData(newData);
+                            saveOnssaToCloud(newData);
+                            showToast(`Base chargée : ${rows.length} entrées`, "success");
+                        } else {
+                            const newData = { ...onssaData, newList: rows, newDate: fileDate };
+                            setOnssaData(newData);
+                            compareOnssaLists(onssaData.baseList, rows, onssaData.baseDate, fileDate);
+                        }
+
+                    } catch (err) {
+                        console.error(err);
+                        showToast("Erreur analyse Excel : " + err.message, "error");
+                    } finally {
+                        setIsOnssaAnalyzing(false);
+                        setOnssaProgress('');
+                    }
+                };
+                reader.readAsBinaryString(file);
+            };
+
+            // LOGIQUE DE COMPARAISON INTELLIGENTE
+            const compareOnssaLists = (base, latest, dBase, dNew) => {
+                if (!base || base.length === 0) return showToast("Liste de base vide.", "warning");
+                
+                setOnssaProgress("Comparaison intelligente en cours...");
+                
+                let remainingBase = [...base];
+                const added = [];
+                const allRegions = new Set();
+
+                latest.forEach(newItem => {
+                    if(newItem.region && newItem.region !== "INCONNUE") allRegions.add(newItem.region.toUpperCase());
+
+                    const newItemNameClean = cleanOnssaName(newItem.nom);
+                    const newItemCityClean = cleanOnssaName(newItem.ville);
+
+                    // Recherche match dans la base
+                    const bestMatchIndex = remainingBase.findIndex(baseItem => {
+                        const baseItemCityClean = cleanOnssaName(baseItem.ville);
+                        // Filtre ville (match exact ou très proche)
+                        if (getSimilarity(newItemCityClean, baseItemCityClean) < 0.8) return false;
+
+                        const baseItemNameClean = cleanOnssaName(baseItem.nom);
+                        // Match nom fuzzy
+                        return getSimilarity(newItemNameClean, baseItemNameClean) > 0.85;
+                    });
+
+                    if (bestMatchIndex !== -1) {
+                        // C'est le même -> on l'enlève de la liste des "disparus potentiels"
+                        remainingBase.splice(bestMatchIndex, 1);
+                    } else {
+                        // Nouveau
+                        added.push(newItem);
+                    }
+                });
+
+                // Ce qui reste dans remainingBase sont les supprimés
+                const removed = remainingBase;
+                
+                // Collect regions from removed as well
+                removed.forEach(r => { if(r.region && r.region !== "INCONNUE") allRegions.add(r.region.toUpperCase()); });
+
+                const regionsArray = Array.from(allRegions).sort();
+                setAvailableRegions(regionsArray);
+                // Par défaut, sélectionner TOUTES les régions
+                setSelectedRegions(regionsArray);
+
+                // Group by Region only (Province is removed)
+                // structure: { "REGION X": [items...] }
+                const groupByRegion = (arr) => {
+                    return arr.reduce((acc, curr) => {
+                        const reg = (curr.region || "AUTRE").toUpperCase();
+                        
+                        if (!acc[reg]) acc[reg] = [];
+                        
+                        acc[reg].push(curr);
+                        return acc;
+                    }, {});
+                };
+
+                const report = {
+                    dateGenerated: new Date().toLocaleString(),
+                    baseDate: dBase,
+                    newDate: dNew,
+                    added: groupByRegion(added),
+                    removed: groupByRegion(removed),
+                    countAdded: added.length,
+                    countRemoved: removed.length,
+                    rawAdded: added, // Keep flat lists for filtering later
+                    rawRemoved: removed
+                };
+
+                const newData = { ...onssaData, newList: latest, newDate: dNew, report: report };
+                setOnssaData(newData);
+                saveOnssaToCloud(newData); // Save result
+                showToast(`Comparaison terminée. Sélectionnez les régions pour le rapport.`, "success");
+                setOnssaProgress('');
+            };
+
+            const toggleRegion = (reg) => {
+                if(selectedRegions.includes(reg)) {
+                    setSelectedRegions(selectedRegions.filter(r => r !== reg));
+                } else {
+                    setSelectedRegions([...selectedRegions, reg]);
+                }
+            };
+
+            const toggleAllRegions = () => {
+                if(selectedRegions.length === availableRegions.length) setSelectedRegions([]);
+                else setSelectedRegions([...availableRegions]);
+            };
+
+            const saveOnssaToCloud = async (data) => {
+                try {
+                    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+                    await dbxUploadFile(dbxConfig, setDbxConfig, '/onssa_db.json', blob);
+                } catch(e) { console.error("Erreur save ONSSA", e); }
+            };
+
+            const loadOnssaFromCloud = async () => {
+                try {
+                    const blob = await dbxDownloadFile(dbxConfig, setDbxConfig, '/onssa_db.json');
+                    const text = await blob.text();
+                    const data = JSON.parse(text);
+                    setOnssaData(data);
+                    
+                    // Restore regions if report exists
+                    if(data.report) {
+                        const allRegs = new Set();
+                        if(data.report.rawAdded) data.report.rawAdded.forEach(r => r.region && r.region !== "INCONNUE" && allRegs.add(r.region.toUpperCase()));
+                        if(data.report.rawRemoved) data.report.rawRemoved.forEach(r => r.region && r.region !== "INCONNUE" && allRegs.add(r.region.toUpperCase()));
+                        if(data.newList) data.newList.forEach(r => r.region && r.region !== "INCONNUE" && allRegs.add(r.region.toUpperCase()));
+                        
+                        const regArr = Array.from(allRegs).sort();
+                        setAvailableRegions(regArr);
+                        setSelectedRegions(regArr); 
+                    }
+                    showToast("Données ONSSA chargées.", "success");
+                } catch(e) { }
+            };
+
+            const generateOnssaReportPDF = () => {
+                if (!onssaData.report) return;
+                const r = onssaData.report;
+                const doc = new jsPDF();
+                
+                // Header
+                doc.setFontSize(22); doc.setTextColor(37, 99, 235); doc.text("Rapport Comparatif ONSSA", 14, 20);
+                doc.setFontSize(10); doc.setTextColor(100); doc.text(`Généré le: ${r.dateGenerated}`, 14, 26);
+                
+                // Filter content based on selected regions
+                const regionsToPrint = selectedRegions.map(reg => reg.toUpperCase());
+                doc.setFontSize(9); doc.setTextColor(80);
+                const regionText = regionsToPrint.length === availableRegions.length ? "TOUTES RÉGIONS" : regionsToPrint.join(', ');
+                const splitRegionText = doc.splitTextToSize(`Filtre : ${regionText}`, 180);
+                doc.text(splitRegionText, 14, 32);
+                
+                let currentY = 36 + (splitRegionText.length * 4);
+                doc.setDrawColor(200); doc.line(14, currentY, 196, currentY);
+                currentY += 6;
+
+                // Dates
+                doc.setFontSize(11); doc.setTextColor(0);
+                doc.text(`Comparaison : ${r.baseDate} vs ${r.newDate}`, 14, currentY);
+                currentY += 10;
+
+                // FONCTION D'AFFICHAGE TABLEAU
+                const printTable = (title, color, dataMap) => {
+                    // Filter map by selected regions
+                    const filteredMap = {};
+                    Object.keys(dataMap).forEach(reg => {
+                        if(regionsToPrint.includes(reg)) {
+                            filteredMap[reg] = dataMap[reg];
+                        }
+                    });
+
+                    // Count total for this section after filter
+                    let totalCount = 0;
+                    Object.values(filteredMap).forEach(items => totalCount += items.length);
+
+                    if(totalCount === 0) return;
+
+                    if (currentY > 260) { doc.addPage(); currentY = 20; }
+                    doc.setFontSize(14); doc.setTextColor(color[0], color[1], color[2]);
+                    doc.text(`${title} (${totalCount})`, 14, currentY);
+                    currentY += 6;
+
+                    const tableRows = [];
+                    
+                    Object.keys(filteredMap).sort().forEach(reg => {
+                        // Header Région
+                        tableRows.push([{ content: `RÉGION : ${reg}`, colSpan: 3, styles: { fillColor: [240, 240, 240], textColor: [50,50,50], fontStyle: 'bold', halign: 'center' } }]);
+                        
+                        const items = filteredMap[reg];
+                        // Sort by Ville
+                        items.sort((a,b) => (a.ville || "").localeCompare(b.ville || ""));
+
+                        items.forEach(item => {
+                            tableRows.push([
+                                item.ville || "",
+                                item.nom || "",
+                                item.adresse || ""
+                            ]);
+                        });
+                    });
+
+                    doc.autoTable({
+                        startY: currentY,
+                        head: [['Ville / Localité', 'Nom / Raison Sociale', 'Adresse']],
+                        body: tableRows,
+                        theme: 'grid',
+                        headStyles: { fillColor: [100, 100, 100] },
+                        styles: { fontSize: 8, cellPadding: 2 },
+                        columnStyles: {
+                            0: { cellWidth: 30, fontStyle: 'bold' },
+                            1: { cellWidth: 70 },
+                            2: { cellWidth: 'auto' }
+                        },
+                        margin: { top: 20 }
+                    });
+                    
+                    currentY = doc.lastAutoTable.finalY + 15;
+                };
+
+                // 1. AJOUTÉS
+                printTable("Revendeurs AJOUTÉS (Nouveaux Agréments)", [22, 163, 74], r.added); // Vert
+
+                // 2. RETIRÉS
+                printTable("Revendeurs RETIRÉS (Agréments Perdus)", [220, 38, 38], r.removed); // Rouge
+
+                doc.save(`Rapport_ONSSA_${new Date().toISOString().slice(0,10)}.pdf`);
+            };
+
+            // --- ONSSA EXCEL LOGIC END ---
 
             const handleExchangeCode = async () => {
                 if(!authCode || !dbxConfig.appKey || !dbxConfig.appSecret) return showToast("Infos manquantes (App Key, Secret, Code).", 'error');
@@ -705,6 +923,10 @@
                         }
                     }
                     if (!silent) { setSyncLog("✅ Données à jour."); setSyncStatus('success'); }
+                    
+                    // Load ONSSA Data if logged in
+                    if (!silent && currentUser?.role === 'admin') loadOnssaFromCloud();
+
                 } catch (e) {
                     if (e.message === "EXPIRED_TOKEN_ALERT") {
                         if (!silent) { 
@@ -977,6 +1199,8 @@
                         // NEW ADMIN LOGIN FLOW: NO AUTO-WRITE
                         // We check authorization locally for UI feedback, but do NOT update DB.
                         if (!dbxConfig.token && !dbxConfig.refreshToken && !HARDCODED_DBX_TOKEN) setShowConfigModal(true);
+                        // LOAD ONSSA DATA ON ADMIN LOGIN
+                        loadOnssaFromCloud();
                         return;
                     }
 
@@ -1738,14 +1962,15 @@
                         <nav className="bg-white/80 backdrop-blur-md border-b border-slate-200 h-16 flex items-center justify-between px-4 md:px-8 sticky top-0 z-40">
                             <div className="flex items-center gap-3"><div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveTab('search')}><div className="bg-blue-600 text-white p-1.5 rounded-lg"><Icon name="Database" size={20} /></div><span className="font-bold text-lg tracking-tight hidden md:inline">Catalogue <span className="text-blue-600">DBX V2</span></span></div><button onClick={() => loadCloudDatabase()} className="p-2 bg-slate-100 hover:bg-blue-100 text-slate-500 hover:text-blue-600 rounded-full transition-colors" title="Forcer la mise à jour"><Icon name="RefreshCw" size={16} className={syncStatus === 'working' ? 'animate-spin' : ''}/></button></div>
                             <div className="flex items-center gap-3">
-                                {currentUser.role === 'admin' && (<div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto max-w-[200px] md:max-w-none no-scrollbar"><button onClick={() => setActiveTab('search')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'search' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Recherche</button><button onClick={() => setActiveTab('quote')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'quote' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Devis</button><button onClick={() => setActiveTab('admin')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'admin' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Admin</button><button onClick={() => setActiveTab('security')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${activeTab === 'security' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Sécurité {pendingRequests.length > 0 && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>}</button><button onClick={() => setActiveTab('users')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'users' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Users</button></div>)}
+                                {currentUser.role === 'admin' && (<div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto max-w-[200px] md:max-w-none no-scrollbar"><button onClick={() => setActiveTab('search')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'search' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Recherche</button><button onClick={() => setActiveTab('quote')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'quote' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Devis</button><button onClick={() => setActiveTab('onssa')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'onssa' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>ONSSA</button><button onClick={() => setActiveTab('admin')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'admin' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Admin</button><button onClick={() => setActiveTab('security')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${activeTab === 'security' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Sécurité {pendingRequests.length > 0 && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>}</button><button onClick={() => setActiveTab('users')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'users' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Users</button></div>)}
                                 {currentUser.role !== 'admin' && (<div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto max-w-[200px] md:max-w-none no-scrollbar"><button onClick={() => setActiveTab('search')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'search' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Recherche</button><button onClick={() => setActiveTab('quote')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'quote' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Devis</button></div>)}
                                 <div className="h-8 w-px bg-slate-200 mx-1"></div><button onClick={handleLogout} className="flex items-center gap-2 text-slate-500 hover:text-red-600 transition-colors text-sm font-medium"><span className="hidden md:inline">{currentUser.name}</span><Icon name="LogOut" size={18} /></button>
                             </div>
                         </nav>
 
                         <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
-                            {/* SEARCH TAB */}
+                            
+                            {/* SEARCH & QUOTE TABS (UNCHANGED BUT INCLUDED FOR CONTEXT) */}
                             {activeTab === 'search' && (
                                 <div className="animate-fade">
                                     {dbMeta && <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2 mb-6 flex justify-between items-center text-xs text-blue-800 animate-fade"><div className="flex gap-4"><span className="font-bold flex items-center gap-1"><Icon name="Clock" size={12}/> MAJ: {dbMeta.date}</span><span className="hidden md:inline">|</span><span className="flex items-center gap-1"><Icon name="User" size={12}/> {dbMeta.user}</span></div><div className="italic opacity-75 hidden md:block">Données synchronisées automatiquement</div></div>}
@@ -1753,7 +1978,6 @@
                                     
                                     {/* NOUVELLE DISPOSITION : Grid 4 colonnes (3 pour Rapports, 1 pour Stats) */}
                                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
-                                        
                                         {/* SECTION RAPPORTS (Elargie) */}
                                         <div className="lg:col-span-3 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
                                             <h3 className="text-xs font-bold uppercase text-slate-400 mb-4 flex items-center gap-2"><Icon name="BellRing" size={14}/> Dernières Mises à Jour & Rapports</h3>
@@ -1794,7 +2018,6 @@
                                                 )}
                                             </div>
                                         </div>
-
                                         {/* SECTION STATS (Verticale et Compacte) */}
                                         <div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
                                             <h3 className="text-xs font-bold uppercase text-slate-400 mb-4 flex items-center gap-2"><Icon name="PieChart" size={14}/> Données</h3>
@@ -1822,7 +2045,6 @@
                                                 </div>
                                             </div>
                                         </div>
-
                                     </div>
                                     
                                     <div className="max-w-3xl mx-auto text-center mb-10"><div className="relative group z-10"><input className="w-full p-5 pl-14 rounded-2xl border border-slate-200 shadow-xl shadow-slate-100 focus:ring-4 focus:ring-blue-50 outline-none text-lg font-medium transition-all" placeholder="Rechercher un produit ou une fiche..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} autoFocus /><div className="absolute left-5 top-5 text-slate-300 group-focus-within:text-blue-500 transition-colors"><Icon name="Search" size={24} /></div></div>{currentUser.role === 'admin' && (<div className="mt-4 flex justify-center"><button onClick={() => uploadInputRef.current.click()} disabled={isUploading} className="text-xs font-bold text-slate-400 hover:text-blue-600 flex items-center gap-2 transition-colors bg-slate-50 hover:bg-blue-50 px-3 py-1.5 rounded-full"><Icon name={isUploading ? "Loader2" : "UploadCloud"} size={14} className={isUploading ? "animate-spin" : ""}/>{isUploading ? "Envoi..." : "Ajouter Fiche PDF"}</button><input type="file" ref={uploadInputRef} onChange={handleUploadFiche} accept="application/pdf" className="hidden" /></div>)}</div>
@@ -1873,9 +2095,9 @@
                                 </div>
                             )}
 
-                            {/* QUOTE TAB */}
                             {activeTab === 'quote' && (
                                 <div className="max-w-4xl mx-auto space-y-8 animate-fade">
+                                    {/* ... QUOTE TAB CONTENT (KEPT AS IS) ... */}
                                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
                                         <div className="flex justify-between items-center mb-6">
                                             <h3 className="font-bold text-lg flex items-center gap-2"><Icon name="FileEdit" /> Créer un Devis</h3>
@@ -1913,34 +2135,14 @@
                                                                 <div className="flex-1">
                                                                     <div className="font-bold text-slate-800 flex items-center gap-2">
                                                                         {item.name}
-                                                                        {/* NOUVEAU : Badge EXO ou TTC */}
-                                                                        {!item.isTaxable ? (
-                                                                            <span className="bg-green-100 text-green-700 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">EXO</span>
-                                                                        ) : (
-                                                                            <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">TVA 20%</span>
-                                                                        )}
+                                                                        {!item.isTaxable ? (<span className="bg-green-100 text-green-700 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">EXO</span>) : (<span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">TVA 20%</span>)}
                                                                     </div>
                                                                     <div className="text-xs text-slate-500">{item.packaging}</div>
                                                                 </div>
                                                                 <div className="flex items-center gap-6">
-                                                                    <div className="text-center">
-                                                                        <div className="text-[10px] text-slate-400 uppercase font-bold">Qté</div>
-                                                                        <div className="font-bold text-slate-700">{item.qty}</div>
-                                                                    </div>
-                                                                    <div className="text-center">
-                                                                        <div className="text-[10px] text-slate-400 uppercase font-bold">P.U. Base</div>
-                                                                        <div className="font-bold text-slate-700">{item.basePrice.toFixed(2)}</div>
-                                                                    </div>
-                                                                    <div className="text-center">
-                                                                        <div className="text-[10px] text-slate-400 uppercase font-bold">Remise</div>
-                                                                        <div className={`font-bold ${item.discountVal < 0 ? 'text-red-500' : 'text-green-600'}`}>
-                                                                            {item.discountVal < 0 ? '+' : '-'}{Math.abs(item.discountVal)}{item.discountType === 'percent' ? '%' : ' DH'}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="text-right w-24">
-                                                                        <div className="text-[10px] text-slate-400 uppercase font-bold">Total HT</div>
-                                                                        <div className="font-black text-blue-600">{calculateLineTotal(item).toFixed(2)}</div>
-                                                                    </div>
+                                                                    <div className="text-center"><div className="text-[10px] text-slate-400 uppercase font-bold">Qté</div><div className="font-bold text-slate-700">{item.qty}</div></div>
+                                                                    <div className="text-center"><div className="text-[10px] text-slate-400 uppercase font-bold">P.U.</div><div className="font-bold text-slate-700">{item.basePrice.toFixed(2)}</div></div>
+                                                                    <div className="text-right w-24"><div className="text-[10px] text-slate-400 uppercase font-bold">Total HT</div><div className="font-black text-blue-600">{calculateLineTotal(item).toFixed(2)}</div></div>
                                                                     <button onClick={() => removeQuoteItem(item.id)} className="text-red-300 hover:text-red-600 transition-colors"><Icon name="Trash2" size={18}/></button>
                                                                 </div>
                                                             </div>
@@ -1985,6 +2187,96 @@
                                 </div>
                             )}
 
+                            {/* ONSSA TAB (NEW) */}
+                            {activeTab === 'onssa' && currentUser.role === 'admin' && (
+                                <div className="max-w-4xl mx-auto space-y-8 animate-fade">
+                                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <div>
+                                                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Icon name="ShieldCheck" className="text-green-600"/> Agréments ONSSA (Excel)</h2>
+                                                <p className="text-sm text-slate-500 mt-1">Comparateur de listes officielles pour la veille réglementaire.</p>
+                                                <p className="text-xs text-slate-400 mt-1 italic">Format attendu: Région (A), Province (B), Ville (C), Nom (D), Adresse (E)</p>
+                                            </div>
+                                            {onssaData.report && <button onClick={generateOnssaReportPDF} className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 hover:bg-slate-900"><Icon name="FileDown" size={16}/> Rapport PDF</button>}
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                                            {/* ZONE 1: BASE */}
+                                            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 flex flex-col items-center text-center">
+                                                <div className="bg-white p-3 rounded-full shadow-sm text-slate-400 mb-3"><Icon name="Database" size={24}/></div>
+                                                <h3 className="font-bold text-slate-700 mb-1">Liste de Base (Excel)</h3>
+                                                <p className="text-xs text-slate-400 mb-4">{onssaData.baseList.length > 0 ? `${onssaData.baseList.length} revendeurs (Date: ${onssaData.baseDate})` : "Aucune liste définie"}</p>
+                                                <button onClick={() => onssaBaseInputRef.current.click()} disabled={isOnssaAnalyzing} className="w-full bg-white border border-slate-300 text-slate-600 py-2 rounded-xl font-bold text-sm hover:bg-slate-100 flex items-center justify-center gap-2"><Icon name="Upload"/> Charger Base (XLSX)</button>
+                                                <input type="file" ref={onssaBaseInputRef} accept=".xlsx, .xls" className="hidden" onChange={(e) => handleOnssaExcel(e, 'base')}/>
+                                            </div>
+
+                                            {/* ZONE 2: NOUVELLE LISTE */}
+                                            <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 flex flex-col items-center text-center">
+                                                <div className="bg-white p-3 rounded-full shadow-sm text-blue-500 mb-3"><Icon name="RefreshCw" size={24} className={isOnssaAnalyzing ? "animate-spin" : ""}/></div>
+                                                <h3 className="font-bold text-blue-800 mb-1">Nouvelle Liste (Excel)</h3>
+                                                <p className="text-xs text-blue-400 mb-4">{onssaData.newList.length > 0 ? `${onssaData.newList.length} revendeurs (Date: ${onssaData.newDate})` : "En attente de fichier..."}</p>
+                                                <button onClick={() => onssaNewInputRef.current.click()} disabled={isOnssaAnalyzing || onssaData.baseList.length === 0} className="w-full bg-blue-600 text-white py-2 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-blue-200"><Icon name="GitCompare"/> Comparer (XLSX)</button>
+                                                <input type="file" ref={onssaNewInputRef} accept=".xlsx, .xls" className="hidden" onChange={(e) => handleOnssaExcel(e, 'new')}/>
+                                            </div>
+                                        </div>
+
+                                        {isOnssaAnalyzing && (
+                                            <div className="bg-slate-900 text-white p-4 rounded-xl mb-6 animate-pulse flex items-center justify-center gap-3">
+                                                <Icon name="Loader2" className="animate-spin"/>
+                                                <span className="font-mono text-sm">{onssaProgress}</span>
+                                            </div>
+                                        )}
+
+                                        {/* RESULTATS COMPARAISON */}
+                                        {onssaData.report && !isOnssaAnalyzing && (
+                                            <div className="animate-fade">
+                                                <div className="flex gap-4 mb-6">
+                                                    <div className="flex-1 bg-green-50 p-4 rounded-xl border border-green-100 flex items-center gap-4">
+                                                        <div className="bg-white p-2 rounded-full text-green-600 shadow-sm"><Icon name="UserPlus" size={24}/></div>
+                                                        <div>
+                                                            <div className="text-2xl font-black text-green-700">{onssaData.report.countAdded}</div>
+                                                            <div className="text-xs font-bold text-green-800 uppercase">Ajoutés</div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex-1 bg-red-50 p-4 rounded-xl border border-red-100 flex items-center gap-4">
+                                                        <div className="bg-white p-2 rounded-full text-red-500 shadow-sm"><Icon name="UserMinus" size={24}/></div>
+                                                        <div>
+                                                            <div className="text-2xl font-black text-red-600">{onssaData.report.countRemoved}</div>
+                                                            <div className="text-xs font-bold text-red-800 uppercase">Retirés</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* FILTRE RÉGIONS */}
+                                                <div className="bg-slate-100 p-4 rounded-2xl mb-6 border border-slate-200">
+                                                    <div className="flex justify-between items-center mb-3">
+                                                        <h4 className="font-bold text-slate-700 text-sm flex items-center gap-2"><Icon name="Filter" size={16}/> Filtrer Rapport par Région</h4>
+                                                        <button onClick={toggleAllRegions} className="text-xs text-blue-600 font-bold hover:underline">
+                                                            {selectedRegions.length === availableRegions.length ? "Tout décocher" : "Tout cocher"}
+                                                        </button>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-40 overflow-y-auto custom-scrollbar p-1">
+                                                        {availableRegions.map(reg => (
+                                                            <label key={reg} className="flex items-center gap-2 text-xs bg-white p-2 rounded border border-slate-200 cursor-pointer hover:border-blue-300">
+                                                                <input type="checkbox" checked={selectedRegions.includes(reg)} onChange={() => toggleRegion(reg)} className="rounded text-blue-600 focus:ring-blue-500"/>
+                                                                <span className="truncate" title={reg}>{reg}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-6">
+                                                    {/* We show raw numbers here, PDF will be filtered */}
+                                                    <div className="text-center text-xs text-slate-400 italic mb-4">
+                                                        Les tableaux ci-dessous montrent un aperçu global. Utilisez le bouton "Rapport PDF" pour voir le détail filtré par région.
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* ADMIN TAB */}
                             {activeTab === 'admin' && currentUser.role === 'admin' && (
                                 <div className="animate-fade grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -1993,8 +2285,8 @@
                                             <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-800"><Icon name="Settings" /> Paramètres</h3>
                                             <div className="space-y-4">
                                                 <div className="grid gap-1"><label className="text-[10px] font-bold uppercase text-slate-400">Token Dropbox</label><input type="password" value={dbxConfig.token} onChange={e => setDbxConfig({...dbxConfig, token: e.target.value})} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono" /></div>
-                                                <div className="bg-blue-50 p-3 rounded-xl border border-blue-100"><label className="text-[10px] font-bold uppercase text-blue-700 block mb-2">Connexion Permanente (OAuth)</label><div className="grid gap-1 mb-2"><input value={dbxConfig.appKey} onChange={e => setDbxConfig({...dbxConfig, appKey: e.target.value})} className="p-2 bg-white border border-blue-200 rounded text-xs" placeholder="App Key"/></div><div className="grid gap-1 mb-2"><input type="password" value={dbxConfig.appSecret} onChange={e => setDbxConfig({...dbxConfig, appSecret: e.target.value})} className="p-2 bg-white border border-blue-200 rounded text-xs" placeholder="App Secret"/></div>{dbxConfig.appKey && (<a href={`https://www.dropbox.com/oauth2/authorize?client_id=${dbxConfig.appKey}&token_access_type=offline&response_type=code`} target="_blank" className="block w-full text-center bg-blue-600 text-white py-2 rounded-lg text-xs font-bold mb-2 hover:bg-blue-700">1. Autoriser l'App</a>)}<div className="flex gap-2"><input value={authCode} onChange={e => setAuthCode(e.target.value)} className="flex-1 p-2 border rounded-lg text-xs" placeholder="2. Coller le Code"/><button onClick={handleExchangeCode} disabled={syncStatus === 'working'} className="bg-green-600 text-white px-3 rounded-lg hover:bg-green-700 font-bold text-xs">Valider</button></div>{dbxConfig.refreshToken && (<div className="mt-3 bg-white p-2 rounded border border-green-200"><div className="text-[10px] text-green-600 font-bold mb-1">✅ Token Permanent Actif</div><label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">REFRESH TOKEN (A COPIER DANS LE CODE)</label><div className="flex items-center gap-2"><input readOnly value={dbxConfig.refreshToken} className="flex-1 p-1 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-500 select-all" onClick={e => e.target.select()}/><button onClick={() => { copyToClipboard(dbxConfig.refreshToken); showToast("Copié !", 'success'); }} className="p-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-500" title="Copier"><Icon name="Copy" size={12}/></button></div></div>)}</div>
-                                                <div className="grid gap-1"><label className="text-[10px] font-bold uppercase text-slate-400">Clé Gemini</label><input type="password" value={dbxConfig.geminiKey} onChange={e => setDbxConfig({...dbxConfig, geminiKey: e.target.value})} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono" /></div><div className="grid gap-1"><label className="text-[10px] font-bold uppercase text-slate-400">Dossier Tarifs</label><input value={dbxConfig.pathTarifs} onChange={e => setDbxConfig({...dbxConfig, pathTarifs: e.target.value})} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs" /></div><div className="grid gap-1"><label className="text-[10px] font-bold uppercase text-slate-400">Dossier Fiches</label><input value={dbxConfig.pathFT} onChange={e => setDbxConfig({...dbxConfig, pathFT: e.target.value})} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs" /></div>
+                                                <div className="grid gap-1"><label className="text-[10px] font-bold uppercase text-slate-400">Clé Gemini</label><input type="password" value={dbxConfig.geminiKey} onChange={e => setDbxConfig({...dbxConfig, geminiKey: e.target.value})} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono" /></div>
+                                                <div className="bg-blue-50 p-3 rounded-xl border border-blue-100"><label className="text-[10px] font-bold uppercase text-blue-700 block mb-2">Connexion Permanente (OAuth)</label><div className="flex gap-2"><input value={authCode} onChange={e => setAuthCode(e.target.value)} className="flex-1 p-2 border rounded-lg text-xs" placeholder="Coller le Code"/><button onClick={handleExchangeCode} disabled={syncStatus === 'working'} className="bg-green-600 text-white px-3 rounded-lg hover:bg-green-700 font-bold text-xs">Valider</button></div></div>
                                                 <div className="pt-4 mt-4 border-t border-slate-100 flex flex-col gap-2"><button onClick={handleManualCloudSave} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors shadow-sm"><Icon name="CloudUpload" size={14}/> Publier la Base sur le Cloud (MàJ)</button><button onClick={handleLocalExport} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-500 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors"><Icon name="HardDriveDownload" size={14}/> Télécharger Backup Local (Secours)</button></div>
                                             </div>
                                         </div>

@@ -228,8 +228,8 @@
                 });
                 
                 if (res.status === 429) {
-                    if (retryCount < 3) {
-                        const waitTime = 2000 * Math.pow(2, retryCount);
+                    if (retryCount < 4) {
+                        const waitTime = 3000 * Math.pow(2, retryCount);
                         await delay(waitTime);
                         return callIA(payload, key, retryCount + 1);
                     }
@@ -345,13 +345,13 @@
             const report = { date: new Date().toLocaleString(), added: [], removed: [], changed: [] };
             const normalizeStr = (str) => {
                 if (!str) return "";
-                return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).sort().join(''); 
+                return String(str).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).sort().join(''); 
             };
             const getKey = (p) => { const n = normalizeStr(p.name); const pack = normalizeStr(p.packaging); return `${n}_${pack}`; };
             const oldMap = new Map();
-            (oldProducts || []).forEach(p => { if(p.name) { const k = getKey(p); oldMap.set(k, p); p._used = false; } });
+            (oldProducts || []).forEach(p => { if(p && p.name) { const k = getKey(p); oldMap.set(k, p); p._used = false; } });
             (newProducts || []).forEach(newP => {
-                if(!newP.name) return;
+                if(!newP || !newP.name) return;
                 const key = getKey(newP);
                 let oldP = oldMap.get(key);
                 if (!oldP) {
@@ -1429,18 +1429,25 @@
                         
                         // Prompt optimisé pour la stabilité JSON
                         let prompt = i === 1 
-                            ? `Analyse page ${i}. Date (JJ/MM/AAAA) ou "${filenameDate}". ${instructionPrix} IMPORTANT: 1. Garde les astérisques (*) dans 'name'. 2. Extrais 'packaging' (ex: 25Kg, 5L, Sac, Pot, Bidon, 1L). JSON STRICT: { "date_tarif": "...", "products": [ {"name": "...", "price": 0.00, "unit": "...", "packaging": "..."} ] }` 
-                            : `Analyse page ${i}. ${instructionPrix} IMPORTANT: 1. Garde les astérisques (*) dans 'name'. 2. Extrais 'packaging'. JSON STRICT: { "products": [ {"name": "...", "price": 0.00, "unit": "...", "packaging": "..."} ] }`;
+                            ? `Analyse page ${i}. Date (JJ/MM/AAAA) ou "${filenameDate}". ${instructionPrix} IMPORTANT: 1. Garde les astérisques (*) dans 'name'. 2. Extrais 'packaging' (ex: 25Kg, 5L, Sac, Pot, Bidon, 1L). Retourne UNIQUEMENT un JSON STRICT: { "date_tarif": "...", "products": [ {"name": "...", "price": 0.00, "unit": "...", "packaging": "..."} ] }` 
+                            : `Analyse page ${i}. ${instructionPrix} IMPORTANT: 1. Garde les astérisques (*) dans 'name'. 2. Extrais 'packaging'. Retourne UNIQUEMENT un JSON STRICT: { "products": [ {"name": "...", "price": 0.00, "unit": "...", "packaging": "..."} ] }`;
                         
-                        if (i > 1) await delay(3000); // Délai augmenté pour éviter rate limit
+                        if (i > 1) await delay(4500); // Délai augmenté pour éviter rate limit (15 RPM max)
                         
                         try {
-                            const result = await callIA({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64Img } } ] }], generationConfig: { responseMimeType: "application/json" } }, dbxConfig.geminiKey);
+                            const payload = { contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64Img } } ] }] };
+                            const result = await callIA(payload, dbxConfig.geminiKey);
                             const textRaw = result.candidates[0].content.parts[0].text;
                             
                             // Extraction plus robuste
                             const jsonStr = extractJSON(textRaw);
-                            const pageData = JSON.parse(jsonStr);
+                            let pageData = {};
+                            try {
+                                pageData = JSON.parse(jsonStr);
+                            } catch(parseErr) {
+                                console.warn(`JSON Parse Error page ${i}:`, parseErr, "Raw:", textRaw);
+                                continue; // Skip bad page au lieu de crasher
+                            }
                             
                             if (i === 1 && pageData.date_tarif) extractedDate = pageData.date_tarif;
                             
@@ -1451,7 +1458,7 @@
                                 allProducts = [...allProducts, ...pageData.products];
                             }
                         } catch (pageErr) { 
-                            console.warn(`Erreur page ${i}:`, pageErr);
+                            console.warn(`Erreur API page ${i}:`, pageErr);
                             // On continue même si une page échoue
                         }
                     }

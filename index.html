@@ -218,49 +218,64 @@
         };
 
         // --- IA GOOGLE & HELPERS ---
-        const callIA = async (payload, key, retryCount = 0) => {
-            const modelVersion = 'gemini-2.5-flash-preview-09-2025';
-            if (!key) throw new Error("Clé API Gemini manquante");
+        const callIA = async (payload, key, retryCount = 0, specifiedModel = 'gemini-1.5-flash') => {
+            const cleanKey = key.trim();
+            if (!cleanKey) throw new Error("Clé API Gemini manquante");
+
+            // Désactivation des filtres de sécurité qui bloquent souvent les produits chimiques/agricoles
+            const fullPayload = {
+                ...payload,
+                safetySettings: [
+                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+                ]
+            };
 
             try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelVersion}:generateContent?key=${key}`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${specifiedModel}:generateContent?key=${cleanKey}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fullPayload)
                 });
-                
+
+                if (res.status === 404) {
+                     throw new Error(`Le modèle [${specifiedModel}] est introuvable (404) ou non autorisé pour cette clé API.`);
+                }
+
                 if (res.status === 429) {
-                    if (retryCount < 3) {
-                        const waitTime = 2000 * Math.pow(2, retryCount);
+                    if (retryCount < 4) {
+                        const waitTime = 3000 * Math.pow(2, retryCount); // Attente progressive
                         await delay(waitTime);
-                        return callIA(payload, key, retryCount + 1);
+                        return callIA(payload, cleanKey, retryCount + 1, specifiedModel);
                     }
                     throw new Error("Quota IA épuisé (429).");
                 }
+                
                 if (!res.ok) {
                     const errorData = await res.json();
                     throw new Error(errorData.error?.message || `Erreur IA HTTP ${res.status}`);
                 }
                 return await res.json();
-            } catch (e) { throw e; }
+            } catch (e) { 
+                throw e; 
+            }
         };
 
-        // Extraction JSON améliorée pour gérer Arrays et Objets
+        // Extraction JSON améliorée pour gérer Arrays et Objets (Utilisé comme plan B)
         const extractJSON = (text) => {
-            // Nettoyage basique des balises markdown
+            if (!text) return "[]";
             let clean = text.replace(/```json/g, '').replace(/```/g, '');
             
             const startBrace = clean.indexOf('{');
             const startBracket = clean.indexOf('[');
             
-            // Si aucun JSON détecté
             if (startBrace === -1 && startBracket === -1) return clean;
             
-            // Priorité à l'objet si présent en premier ou si pas de tableau
             if (startBrace !== -1 && (startBracket === -1 || startBrace < startBracket)) {
                 const endBrace = clean.lastIndexOf('}');
                 if (endBrace !== -1) return clean.substring(startBrace, endBrace + 1);
             }
             
-            // Sinon priorité au tableau
             if (startBracket !== -1 && (startBrace === -1 || startBracket < startBrace)) {
                 const endBracket = clean.lastIndexOf(']');
                 if (endBracket !== -1) return clean.substring(startBracket, endBracket + 1);
@@ -307,6 +322,14 @@
             return isNaN(val) ? 0 : val;
         };
 
+        // Fonction sécurisée pour l'affichage et les PDFs (Evite les bugs jsPDF)
+        const formatMoney = (amount) => {
+            if (amount === null || amount === undefined || isNaN(amount)) return "0,00";
+            let parts = parseFloat(amount).toFixed(2).split('.');
+            parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+            return parts.join(',');
+        };
+
         // --- UTILS COMPARISON (EXISTANT) ---
         const getSimilarity = (s1, s2) => {
             let longer = s1; let shorter = s2;
@@ -340,13 +363,13 @@
             const report = { date: new Date().toLocaleString(), added: [], removed: [], changed: [] };
             const normalizeStr = (str) => {
                 if (!str) return "";
-                return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).sort().join(''); 
+                return String(str).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).sort().join(''); 
             };
             const getKey = (p) => { const n = normalizeStr(p.name); const pack = normalizeStr(p.packaging); return `${n}_${pack}`; };
             const oldMap = new Map();
-            (oldProducts || []).forEach(p => { if(p.name) { const k = getKey(p); oldMap.set(k, p); p._used = false; } });
+            (oldProducts || []).forEach(p => { if(p && p.name) { const k = getKey(p); oldMap.set(k, p); p._used = false; } });
             (newProducts || []).forEach(newP => {
-                if(!newP.name) return;
+                if(!newP || !newP.name) return;
                 const key = getKey(newP);
                 let oldP = oldMap.get(key);
                 if (!oldP) {
@@ -413,11 +436,14 @@
             const [manualAddName, setManualAddName] = useState('');
 
             // QUOTE STATE
-            const [quote, setQuote] = useState({ client: '', items: [] });
+            const [quote, setQuote] = useState({ client: '', items: [], notes: '' });
             const [showQuoteProductModal, setShowQuoteProductModal] = useState(false);
             const [quoteSearchQuery, setQuoteSearchQuery] = useState('');
             const [selectedProductForQuote, setSelectedProductForQuote] = useState(null);
             const [quoteItemForm, setQuoteItemForm] = useState({ price: 0, qty: 1, discountVal: 0, discountType: 'percent' });
+            
+            const [isManualItem, setIsManualItem] = useState(false);
+            const [manualItemForm, setManualItemForm] = useState({ name: '', packaging: '', price: 0, isTTC: false, isTaxable: true, qty: 1, discountVal: 0, discountType: 'percent' });
             
             // SAVED QUOTES
             const [savedQuotes, setSavedQuotes] = useState([]);
@@ -574,8 +600,6 @@
                         // 1. DÉTECTION DATE (dans les 15 premières lignes)
                         for(let i=0; i<Math.min(jsonData.length, 15); i++) {
                             const rowText = (jsonData[i] || []).join(' ');
-                            // Regex flexible pour "Arrêtée au..." ou "Arrêté le..."
-                            // Capture tout jusqu'à la fin de la ligne ou une parenthèse
                             const dateMatch = rowText.match(/(?:arr[êeé]t[ée]e?)\s+(?:le|au)\s+([^.\n]+)/i);
                             if (dateMatch) {
                                 detectedDate = "Arrêtée le " + dateMatch[1].trim();
@@ -584,13 +608,9 @@
                         }
                         
                         // ON SUPPOSE QUE LE FICHIER A ÉTÉ NETTOYÉ MANUELLEMENT
-                        // NOUVELLE STRUCTURE : Region | Ville | Nom | Adresse
-                        // On ignore la première ligne (En-tête)
-                        
                         for(let i = 1; i < jsonData.length; i++) {
                             const row = jsonData[i];
                             if(row && row.length > 2) { 
-                                // Mapping STRICT des colonnes
                                 const region = row[0] || "";
                                 const ville = row[1] || "";
                                 const nom = row[2] || "";
@@ -631,7 +651,6 @@
                 reader.readAsBinaryString(file);
             };
 
-            // LOGIQUE DE COMPARAISON INTELLIGENTE
             const compareOnssaLists = (base, latest, dBase, dNew) => {
                 if (!base || base.length === 0) return showToast("Liste de base vide.", "warning");
                 
@@ -647,45 +666,33 @@
                     const newItemNameClean = cleanOnssaName(newItem.nom);
                     const newItemCityClean = cleanOnssaName(newItem.ville);
 
-                    // Recherche match dans la base
                     const bestMatchIndex = remainingBase.findIndex(baseItem => {
                         const baseItemCityClean = cleanOnssaName(baseItem.ville);
-                        // Filtre ville (match exact ou très proche)
                         if (getSimilarity(newItemCityClean, baseItemCityClean) < 0.8) return false;
 
                         const baseItemNameClean = cleanOnssaName(baseItem.nom);
-                        // Match nom fuzzy
                         return getSimilarity(newItemNameClean, baseItemNameClean) > 0.85;
                     });
 
                     if (bestMatchIndex !== -1) {
-                        // C'est le même -> on l'enlève de la liste des "disparus potentiels"
                         remainingBase.splice(bestMatchIndex, 1);
                     } else {
-                        // Nouveau
                         added.push(newItem);
                     }
                 });
 
-                // Ce qui reste dans remainingBase sont les supprimés
                 const removed = remainingBase;
                 
-                // Collect regions from removed as well
                 removed.forEach(r => { if(r.region && r.region !== "INCONNUE") allRegions.add(r.region.toUpperCase()); });
 
                 const regionsArray = Array.from(allRegions).sort();
                 setAvailableRegions(regionsArray);
-                // Par défaut, sélectionner TOUTES les régions
                 setSelectedRegions(regionsArray);
 
-                // Group by Region only (Province is removed)
-                // structure: { "REGION X": [items...] }
                 const groupByRegion = (arr) => {
                     return arr.reduce((acc, curr) => {
                         const reg = (curr.region || "AUTRE").toUpperCase();
-                        
                         if (!acc[reg]) acc[reg] = [];
-                        
                         acc[reg].push(curr);
                         return acc;
                     }, {});
@@ -699,13 +706,13 @@
                     removed: groupByRegion(removed),
                     countAdded: added.length,
                     countRemoved: removed.length,
-                    rawAdded: added, // Keep flat lists for filtering later
+                    rawAdded: added, 
                     rawRemoved: removed
                 };
 
                 const newData = { ...onssaData, newList: latest, newDate: dNew, report: report };
                 setOnssaData(newData);
-                saveOnssaToCloud(newData); // Save result
+                saveOnssaToCloud(newData); 
                 showToast(`Comparaison terminée. Sélectionnez les régions pour le rapport.`, "success");
                 setOnssaProgress('');
             };
@@ -737,7 +744,6 @@
                     const data = JSON.parse(text);
                     setOnssaData(data);
                     
-                    // Restore regions if report exists
                     if(data.report) {
                         const allRegs = new Set();
                         if(data.report.rawAdded) data.report.rawAdded.forEach(r => r.region && r.region !== "INCONNUE" && allRegs.add(r.region.toUpperCase()));
@@ -757,11 +763,9 @@
                 const r = onssaData.report;
                 const doc = new jsPDF();
                 
-                // Header
                 doc.setFontSize(22); doc.setTextColor(37, 99, 235); doc.text("Rapport Comparatif ONSSA", 14, 20);
                 doc.setFontSize(10); doc.setTextColor(100); doc.text(`Généré le: ${r.dateGenerated}`, 14, 26);
                 
-                // Filter content based on selected regions
                 const regionsToPrint = selectedRegions.map(reg => reg.toUpperCase());
                 doc.setFontSize(9); doc.setTextColor(80);
                 const regionText = regionsToPrint.length === availableRegions.length ? "TOUTES RÉGIONS" : regionsToPrint.join(', ');
@@ -772,14 +776,11 @@
                 doc.setDrawColor(200); doc.line(14, currentY, 196, currentY);
                 currentY += 6;
 
-                // Dates
                 doc.setFontSize(11); doc.setTextColor(0);
                 doc.text(`Comparaison : ${r.baseDate} vs ${r.newDate}`, 14, currentY);
                 currentY += 10;
 
-                // FONCTION D'AFFICHAGE TABLEAU
                 const printTable = (title, color, dataMap) => {
-                    // Filter map by selected regions
                     const filteredMap = {};
                     Object.keys(dataMap).forEach(reg => {
                         if(regionsToPrint.includes(reg)) {
@@ -787,7 +788,6 @@
                         }
                     });
 
-                    // Count total for this section after filter
                     let totalCount = 0;
                     Object.values(filteredMap).forEach(items => totalCount += items.length);
 
@@ -801,11 +801,9 @@
                     const tableRows = [];
                     
                     Object.keys(filteredMap).sort().forEach(reg => {
-                        // Header Région
                         tableRows.push([{ content: `RÉGION : ${reg}`, colSpan: 3, styles: { fillColor: [240, 240, 240], textColor: [50,50,50], fontStyle: 'bold', halign: 'center' } }]);
                         
                         const items = filteredMap[reg];
-                        // Sort by Ville
                         items.sort((a,b) => (a.ville || "").localeCompare(b.ville || ""));
 
                         items.forEach(item => {
@@ -835,11 +833,8 @@
                     currentY = doc.lastAutoTable.finalY + 15;
                 };
 
-                // 1. AJOUTÉS
-                printTable("Revendeurs AJOUTÉS (Nouveaux Agréments)", [22, 163, 74], r.added); // Vert
-
-                // 2. RETIRÉS
-                printTable("Revendeurs RETIRÉS (Agréments Perdus)", [220, 38, 38], r.removed); // Rouge
+                printTable("Revendeurs AJOUTÉS (Nouveaux Agréments)", [22, 163, 74], r.added); 
+                printTable("Revendeurs RETIRÉS (Agréments Perdus)", [220, 38, 38], r.removed); 
 
                 doc.save(`Rapport_ONSSA_${new Date().toISOString().slice(0,10)}.pdf`);
             };
@@ -866,8 +861,6 @@
                 }
             };
 
-            // --- SECURE CLOUD UPDATE TRANSACTION ---
-            // Cette fonction remplace l'ancien "saveToCloud" pour toutes les modifications
             const secureCloudUpdate = async (updateLogicFn) => {
                 if (!currentUser || (currentUser.role !== 'admin' && currentUser.id !== 'SUPERADMIN')) {
                     showToast("Action refusée : Droits administrateur requis.", "error");
@@ -876,27 +869,21 @@
 
                 setSyncStatus('working');
                 try {
-                    // 1. Fetch latest Data
                     let latestData = {};
                     try {
                         const blob = await dbxDownloadFile(dbxConfig, setDbxConfig, '/db_tarifs.json');
                         const text = await blob.text();
                         latestData = JSON.parse(text);
                     } catch(readErr) {
-                        // Si le fichier n'existe pas, on initialise avec des valeurs par défaut
                         latestData = { tarifs: [], fiches: [], history: [], users: DEFAULT_USERS, pendingRequests: [], authorizedDevices: [], savedQuotes: [] };
                     }
 
-                    // 2. Apply Update Logic (Transaction)
                     const newData = updateLogicFn(latestData);
                     
-                    // 3. Update Meta
                     newData.meta = { date: new Date().toLocaleString(), user: currentUser?.name || 'System' };
 
-                    // 4. Upload
                     await dbxUploadFile(dbxConfig, setDbxConfig, '/db_tarifs.json', new Blob([JSON.stringify(newData)], { type: 'application/json' }));
 
-                    // 5. Update Local State to reflect changes
                     if(newData.tarifs) setTarifs(newData.tarifs);
                     if(newData.fiches) setFiches(newData.fiches);
                     if(newData.history) setDbHistory(newData.history);
@@ -931,7 +918,7 @@
                     }
                     if (data.pendingRequests) setPendingRequests(data.pendingRequests);
                     if (data.authorizedDevices) setAuthorizedDevices(data.authorizedDevices);
-                    if (data.savedQuotes) setSavedQuotes(data.savedQuotes || []); // Load Saved Quotes
+                    if (data.savedQuotes) setSavedQuotes(data.savedQuotes || []);
 
                     if (data.config && data.config.refreshToken) {
                         if (data.config.refreshToken && data.config.refreshToken !== dbxConfig.refreshToken) {
@@ -943,7 +930,6 @@
                     }
                     if (!silent) { setSyncLog("✅ Données à jour."); setSyncStatus('success'); }
                     
-                    // Load ONSSA Data if logged in
                     if (!silent && currentUser?.role === 'admin') loadOnssaFromCloud();
 
                 } catch (e) {
@@ -959,19 +945,18 @@
                 }
             };
 
-            // ... (Calculator & Quote logic unchanged)
             const openCalculator = (product, prices) => {
                 let base = 0;
                 let label = '';
-                if (product) { // Added check
+                if (product) { 
                     if (prices.t4) { 
-                        base = parseFloat(prices.t4); 
+                        base = parseFloat(prices.t4.replace(/\s/g, '').replace(',', '.')); 
                         label = 'Prix T4'; 
                     } else if (prices.ttc) { 
-                        base = parseFloat(prices.ttc); 
+                        base = parseFloat(prices.ttc.replace(/\s/g, '').replace(',', '.')); 
                         label = 'Prix TTC'; 
                     } else { 
-                        base = parseFloat(prices.ht); 
+                        base = parseFloat(prices.ht.replace(/\s/g, '').replace(',', '.')); 
                         label = 'Prix HT (Exo)'; 
                     }
                     setCalcState({ show: true, product, basePrice: base, baseLabel: label });
@@ -983,10 +968,11 @@
                 setShowQuoteProductModal(true);
                 setQuoteSearchQuery('');
                 setSelectedProductForQuote(null);
+                setIsManualItem(false);
             };
 
             const selectProductForQuote = (product) => {
-                if (!product) return; // Added check
+                if (!product) return; 
                 let basePrice = parsePrice(product.price);
                 if (product.t4_percentage > 0) {
                     basePrice = basePrice * (1 - product.t4_percentage / 100);
@@ -1015,12 +1001,36 @@
                 showToast("Produit ajouté au devis", 'success');
             };
 
+            const addManualQuoteItem = () => {
+                if (!manualItemForm.name) return showToast("Nom requis", 'warning');
+                let basePrice = manualItemForm.price;
+                if (manualItemForm.isTaxable && manualItemForm.isTTC) {
+                    basePrice = basePrice / 1.20;
+                }
+                const newItem = {
+                    id: Date.now(),
+                    name: manualItemForm.name,
+                    packaging: manualItemForm.packaging,
+                    unit: 'DH',
+                    basePrice: basePrice,
+                    qty: manualItemForm.qty,
+                    discountVal: manualItemForm.discountVal,
+                    discountType: manualItemForm.discountType,
+                    isTaxable: manualItemForm.isTaxable
+                };
+                setQuote(prev => ({ ...prev, items: [...prev.items, newItem] }));
+                setShowQuoteProductModal(false);
+                setIsManualItem(false);
+                setManualItemForm({ name: '', packaging: '', price: 0, isTTC: false, isTaxable: true, qty: 1, discountVal: 0, discountType: 'percent' });
+                showToast("Article manuel ajouté", 'success');
+            };
+
             const removeQuoteItem = (id) => {
                 setQuote(prev => ({ ...prev, items: prev.items.filter(item => item.id !== id) }));
             };
 
             const calculateLineTotal = (item) => {
-                if (!item) return 0; // Guard clause
+                if (!item) return 0; 
                 let finalPrice = item.basePrice || 0;
                 if (item.discountType === 'percent') {
                     finalPrice = finalPrice * (1 - ((item.discountVal || 0) / 100));
@@ -1030,7 +1040,6 @@
                 return finalPrice * (item.qty || 1);
             };
 
-            // NEW: SAVE QUOTE LOGIC
             const handleSaveQuote = async () => {
                 if (!quote.client) return showToast("Nom du client requis", 'warning');
                 if (quote.items.length === 0) return showToast("Le devis est vide", 'warning');
@@ -1039,6 +1048,7 @@
                     id: Date.now(),
                     saveDate: new Date().toLocaleString(),
                     client: quote.client,
+                    notes: quote.notes || '',
                     items: quote.items,
                     creator: currentUser?.name || 'Inconnu'
                 };
@@ -1055,7 +1065,7 @@
             };
 
             const handleLoadQuote = (savedQ) => {
-                setQuote({ client: savedQ.client, items: savedQ.items });
+                setQuote({ client: savedQ.client, items: savedQ.items, notes: savedQ.notes || '' });
                 setShowSavedQuotesModal(false);
                 showToast("Devis chargé !", 'success');
             };
@@ -1104,7 +1114,7 @@
                 doc.text(`Client: ${quote.client}`, pageWidth - 14, 42, { align: 'right' });
                 doc.setFont(undefined, 'normal');
 
-                const tableRows = quote.items.filter(i => i).map(item => { // Filter nulls
+                const tableRows = quote.items.filter(i => i).map(item => { 
                     let finalPriceUnit = item.basePrice || 0;
                     if (item.discountType === 'percent') {
                         finalPriceUnit = finalPriceUnit * (1 - ((item.discountVal || 0) / 100));
@@ -1117,9 +1127,9 @@
                     return [
                         `${item.name}${item.packaging ? ` (${item.packaging})` : ''}`,
                         item.qty,
-                        finalPriceUnit.toFixed(2), 
-                        finalPriceUnitTTC.toFixed(2), 
-                        (finalPriceUnit * item.qty).toFixed(2) 
+                        formatMoney(finalPriceUnit), 
+                        formatMoney(finalPriceUnitTTC), 
+                        formatMoney(finalPriceUnit * item.qty) 
                     ];
                 });
 
@@ -1143,7 +1153,7 @@
                 let totalTVA = 0;
 
                 quote.items.forEach(item => {
-                    if (!item) return; // Protection loop
+                    if (!item) return; 
                     const lineTotal = calculateLineTotal(item);
                     totalHT += lineTotal;
                     if(item.isTaxable) {
@@ -1158,9 +1168,9 @@
                 doc.autoTable({
                     startY: doc.lastAutoTable.finalY + 10,
                     body: [
-                        ['Total HT', `${totalHT.toFixed(2)} DH`],
-                        ['TVA (20%)', `${totalTVA.toFixed(2)} DH`],
-                        ['Total TTC', `${totalTTC.toFixed(2)} DH`]
+                        ['Total HT', `${formatMoney(totalHT)} DH`],
+                        ['TVA (20%)', `${formatMoney(totalTVA)} DH`],
+                        ['Total TTC', `${formatMoney(totalTTC)} DH`]
                     ],
                     theme: 'plain',
                     styles: { fontSize: 10, cellPadding: 2, halign: 'right' },
@@ -1170,6 +1180,20 @@
                     },
                     margin: { left: pageWidth - 100 }
                 });
+
+                if (quote.notes) {
+                    let notesY = doc.lastAutoTable.finalY + 15;
+                    if (notesY > doc.internal.pageSize.height - 40) { doc.addPage(); notesY = 20; }
+                    doc.setFontSize(10);
+                    doc.setFont(undefined, 'bold');
+                    doc.setTextColor(37, 99, 235);
+                    doc.text("Notes & Conditions :", 14, notesY);
+                    doc.setFont(undefined, 'normal');
+                    doc.setTextColor(100);
+                    const splitNotes = doc.splitTextToSize(quote.notes, doc.internal.pageSize.getWidth() - 28);
+                    doc.text(splitNotes, 14, notesY + 6);
+                }
+
                 doc.setFont(undefined, 'bold');
                 doc.setTextColor(37, 99, 235);
                 doc.save(`Devis_${quote.client}_${Date.now()}.pdf`);
@@ -1181,7 +1205,7 @@
                 (tarifs || []).forEach(t => {
                     if (t && t.products && Array.isArray(t.products)) {
                         t.products.forEach(p => {
-                            if (p) { // Add check
+                            if (p) { 
                                 all.push({
                                     ...p,
                                     source: t.name,
@@ -1215,22 +1239,17 @@
                         setLoginError('');
                         setView('dashboard');
                         
-                        // NEW ADMIN LOGIN FLOW: NO AUTO-WRITE
-                        // We check authorization locally for UI feedback, but do NOT update DB.
                         if (!dbxConfig.token && !dbxConfig.refreshToken && !HARDCODED_DBX_TOKEN) setShowConfigModal(true);
-                        // LOAD ONSSA DATA ON ADMIN LOGIN
                         loadOnssaFromCloud();
                         return;
                     }
 
-                    // VIEWER SECURITY CHECK (READ ONLY)
                     const isAuth = authorizedDevices.some(d => (typeof d === 'string' ? d : d.id) === deviceId);
                     if (isAuth) {
                         setCurrentUser(user);
                         setLoginError('');
                         setView('dashboard');
                     } else {
-                        // REJECTED : NO DB WRITE. Show manual copy screen.
                         setView('pending_approval');
                     }
                 } else { setLoginError('Identifiants incorrects'); }
@@ -1269,7 +1288,7 @@
             };
 
             useEffect(() => {
-                let renderTask = null; // Variable pour stocker la tâche de rendu en cours
+                let renderTask = null; 
 
                 const renderPage = async () => {
                     if (!viewingFile || viewingFile.type !== 'pdf' || !pdfState.pdfDoc || !canvasRef.current) return;
@@ -1280,20 +1299,16 @@
                         const canvas = canvasRef.current;
                         const context = canvas.getContext('2d');
                         
-                        // Ajuster les dimensions
                         canvas.height = viewport.height;
                         canvas.width = viewport.width;
 
-                        // Annuler le rendu précédent si existant (pour éviter les conflits)
                         if (renderTask) {
                             renderTask.cancel();
                         }
 
-                        // Lancer le nouveau rendu
                         renderTask = page.render({ canvasContext: context, viewport });
                         await renderTask.promise;
                     } catch (e) {
-                        // Ignorer l'erreur d'annulation (normale)
                         if (e.name !== 'RenderingCancelledException') {
                             console.error("Erreur rendu PDF:", e);
                         }
@@ -1302,7 +1317,6 @@
 
                 renderPage();
 
-                // Nettoyage lors du démontage ou changement de page
                 return () => {
                     if (renderTask) {
                         renderTask.cancel();
@@ -1324,11 +1338,9 @@
                 if (!file) return;
                 setIsUploading(true);
                 try {
-                    // 1. Upload du fichier PDF (Physique) - CA C'EST OK POUR TOUT LE MONDE
                     const targetPath = `${dbxConfig.pathFT || '/Fiches'}/${file.name}`;
                     await dbxUploadFile(dbxConfig, setDbxConfig, targetPath, file);
                     
-                    // 2. Si ADMIN : On met à jour l'index de manière sécurisée
                     if (currentUser.role === 'admin') {
                         await secureCloudUpdate(currentData => {
                             const newFiche = { 
@@ -1355,7 +1367,6 @@
                 }
             };
 
-            // ... (analyzePDF unchanged)
             const analyzePDF = async (blob, filename) => {
                 const pdfjsLib = window.pdfjsLib;
                 try {
@@ -1364,11 +1375,29 @@
                     let allProducts = [];
                     let extractedDate = "Non daté";
                     const filenameDate = extractDateFromFilename(filename);
-                    const maxPages = Math.min(pdf.numPages, 50); // Augmentation limite pages pour être sûr
+                    const maxPages = Math.min(pdf.numPages, 50); 
                     
+                    // --- AUTO-DÉCOUVERTE DU MEILLEUR MODÈLE ---
+                    let bestModel = 'gemini-1.5-flash';
+                    try {
+                        setSyncLog(prev => prev + "\n🔍 Auto-découverte du modèle IA autorisé pour votre clé...");
+                        const checkRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${dbxConfig.geminiKey.trim()}`);
+                        if (checkRes.ok) {
+                            const data = await checkRes.json();
+                            const models = (data.models || []).map(m => m.name.replace('models/', ''));
+                            // Priorité aux modèles connus et performants existant sur le compte
+                            const prefs = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-latest'];
+                            bestModel = prefs.find(p => models.includes(p)) || models.find(m => m.includes('flash')) || 'gemini-1.5-flash';
+                            setSyncLog(prev => prev + `\n🤖 Modèle sélectionné par l'API : ${bestModel}`);
+                        } else {
+                            setSyncLog(prev => prev + `\n⚠️ Impossible de lister les modèles, utilisation du défaut (${bestModel})`);
+                        }
+                    } catch (err) {
+                        console.warn("Échec auto-découverte", err);
+                    }
+
                     for (let i = 1; i <= maxPages; i++) {
-                        // Feedback visuel pour l'utilisateur
-                        setSyncLog(`Analyse page ${i}/${pdf.numPages}...`);
+                        setSyncLog(prev => prev + `\n⏳ Analyse page ${i}/${pdf.numPages}...`);
                         
                         const page = await pdf.getPage(i);
                         const viewport = page.getViewport({ scale: 1.5 });
@@ -1379,39 +1408,70 @@
                         await page.render({ canvasContext: ctx, viewport }).promise;
                         const base64Img = canvas.toDataURL('image/png').split(',')[1];
                         
-                        const instructionPrix = "ATTENTION : Les prix sont au format EUROPEEN (ex: 1.000,00). Convertis en FLOAT (ex: 1000.00).";
+                        const instructionPrix = "MISSION CRITIQUE : Tu dois extraire TOUS les produits du tableau sans exception. Les prix sont au format EUROPEEN (ex: 1.000,00). Convertis-les en FLOAT (ex: 1000.00).";
                         
-                        // Prompt optimisé pour la stabilité JSON
                         let prompt = i === 1 
-                            ? `Analyse page ${i}. Date (JJ/MM/AAAA) ou "${filenameDate}". ${instructionPrix} IMPORTANT: 1. Garde les astérisques (*) dans 'name'. 2. Extrais 'packaging' (ex: 25Kg, 5L, Sac, Pot, Bidon, 1L). JSON STRICT: { "date_tarif": "...", "products": [ {"name": "...", "price": 0.00, "unit": "...", "packaging": "..."} ] }` 
-                            : `Analyse page ${i}. ${instructionPrix} IMPORTANT: 1. Garde les astérisques (*) dans 'name'. 2. Extrais 'packaging'. JSON STRICT: { "products": [ {"name": "...", "price": 0.00, "unit": "...", "packaging": "..."} ] }`;
+                            ? `Analyse page ${i}. Date (JJ/MM/AAAA) ou "${filenameDate}". ${instructionPrix} IMPORTANT: 1. Garde les astérisques (*) dans 'name'. 2. Extrais le 'packaging' (ex: 25Kg, 5L, Sac, Pot, Bidon, 1L).` 
+                            : `Analyse page ${i}. ${instructionPrix} IMPORTANT: 1. Garde les astérisques (*) dans 'name'. 2. Extrais 'packaging'.`;
                         
-                        if (i > 1) await delay(3000); // Délai augmenté pour éviter rate limit
+                        if (i > 1) await delay(4500); 
                         
                         try {
-                            const result = await callIA({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64Img } } ] }], generationConfig: { responseMimeType: "application/json" } }, dbxConfig.geminiKey);
-                            const textRaw = result.candidates[0].content.parts[0].text;
+                            const payload = { 
+                                contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64Img } } ] }]
+                            };
                             
-                            // Extraction plus robuste
-                            const jsonStr = extractJSON(textRaw);
-                            const pageData = JSON.parse(jsonStr);
+                            const result = await callIA(payload, dbxConfig.geminiKey, 0, bestModel);
+                            
+                            if (!result.candidates || result.candidates.length === 0) {
+                                throw new Error(result.promptFeedback?.blockReason ? `Bloqué par sécurité Google (${result.promptFeedback.blockReason})` : "Aucun candidat renvoyé.");
+                            }
+                            
+                            const content = result.candidates[0].content;
+                            if (!content || !content.parts || content.parts.length === 0) {
+                                throw new Error("Réponse vide ou bloquée.");
+                            }
+
+                            const textRaw = content.parts[0].text;
+                            
+                            let pageData = {};
+                            try {
+                                pageData = JSON.parse(textRaw);
+                            } catch(parseErr) {
+                                const jsonStr = extractJSON(textRaw);
+                                try {
+                                    pageData = JSON.parse(jsonStr);
+                                } catch (e2) {
+                                    setSyncLog(prev => prev + `\n⚠️ Page ${i} ignorée (JSON illisible)`);
+                                    continue;
+                                }
+                            }
                             
                             if (i === 1 && pageData.date_tarif) extractedDate = pageData.date_tarif;
                             
-                            // Support robuste pour Array ou Object
+                            let itemsFound = 0;
                             if (Array.isArray(pageData)) {
                                 allProducts = [...allProducts, ...pageData];
+                                itemsFound = pageData.length;
                             } else if (pageData.products && Array.isArray(pageData.products)) {
                                 allProducts = [...allProducts, ...pageData.products];
+                                itemsFound = pageData.products.length;
+                            } else if (pageData.produits && Array.isArray(pageData.produits)) {
+                                allProducts = [...allProducts, ...pageData.produits];
+                                itemsFound = pageData.produits.length;
                             }
+                            
+                            setSyncLog(prev => prev + `\n✅ Page ${i} terminée : ${itemsFound} produits extraits.`);
+
                         } catch (pageErr) { 
-                            console.warn(`Erreur page ${i}:`, pageErr);
-                            // On continue même si une page échoue
+                            console.warn(`Erreur API page ${i}:`, pageErr);
+                            setSyncLog(prev => prev + `\n⚠️ Erreur IA page ${i} : ${pageErr.message}`);
                         }
                     }
                     return { date_tarif: extractedDate, products: allProducts };
                 } catch (e) { 
                     console.error("Erreur PDF:", e);
+                    setSyncLog(prev => prev + `\n❌ Erreur de lecture du fichier PDF : ${e.message}`);
                     return { date_tarif: extractDateFromFilename(filename) || "Erreur", products: [] }; 
                 }
             };
@@ -1423,15 +1483,25 @@
                 if (!dbxConfig.geminiKey) return showToast("Clé API Gemini manquante.", 'error');
                 
                 setSyncStatus('working');
-                setSyncLog("Traitement manuel...");
+                setSyncLog("🚀 Démarrage du traitement manuel pour " + file.name);
                 setShowAdminUploadModal(false);
                 
                 try {
                     const targetPath = `${dbxConfig.pathTarifs || '/Tarifs'}/${file.name}`;
+                    setSyncLog(prev => prev + "\n📤 Upload du fichier sur Dropbox...");
                     const uploadMeta = await dbxUploadFile(dbxConfig, setDbxConfig, targetPath, file);
+                    
+                    setSyncLog(prev => prev + "\n🧠 Envoi à l'IA Gemini...");
                     const analysis = await analyzePDF(file, file.name);
                     
-                    // Utilisation de la mise à jour sécurisée
+                    if (!analysis.products || analysis.products.length === 0) {
+                        setSyncLog(prev => prev + `\n❌ Échec : L'IA n'a extrait aucun produit. Vérifiez les logs ci-dessus.`);
+                        showToast(`Aucun produit extrait. Processus annulé.`, 'error');
+                        setSyncStatus('error');
+                        return;
+                    }
+
+                    setSyncLog(prev => prev + `\n💾 Sauvegarde dans la base de données...`);
                     await secureCloudUpdate(currentData => {
                         let newTarifs = [...(currentData.tarifs || [])];
                         let report = null;
@@ -1467,9 +1537,13 @@
                         };
                     });
 
-                    setSyncLog(`✅ ${file.name} traité (T4: ${t4Value}%).`);
-                } catch (err) { setSyncLog(`❌ Erreur: ${err.message}`); setSyncStatus('error'); } 
-                finally { if (adminFileInputRef.current) adminFileInputRef.current.value = ''; }
+                    setSyncLog(prev => prev + `\n🎉 Succès : ${file.name} traité avec succès (${analysis.products.length} produits). T4: ${t4Value}%`);
+                } catch (err) { 
+                    setSyncLog(prev => prev + `\n❌ Erreur Générale: ${err.message}`); 
+                    setSyncStatus('error'); 
+                } finally { 
+                    if (adminFileInputRef.current) adminFileInputRef.current.value = ''; 
+                }
             };
 
             const handleSyncFiches = async () => {
@@ -1557,7 +1631,6 @@
                     "Mise à Jour Manuelle",
                     "ATTENTION : Cette action va écraser la base de données distante avec votre version actuelle. Utilisez cela uniquement si vous savez ce que vous faites.",
                     async () => {
-                        // Ici on utilise saveToCloud "classique" car c'est un FORCE UPDATE explicite
                         await secureCloudUpdate(d => ({ ...d, tarifs, fiches, users, history: dbHistory }));
                     }
                 );
@@ -1617,7 +1690,6 @@
                 setManualAddName('');
             };
 
-            // ... (rest of the render logic remains the same)
             const searchResults = useMemo(() => {
                 if (!searchQuery || searchQuery.length < 2) return { products: [], fiches: [] };
                 const q = searchQuery.toLowerCase();
@@ -1634,7 +1706,6 @@
                 return { products: foundProducts, fiches: foundFiches };
             }, [searchQuery, tarifs, fiches]);
 
-            // --- VIEW: PENDING APPROVAL (NEW VERSION READ ONLY) ---
             if (view === 'pending_approval') {
                 return (
                     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
@@ -1662,7 +1733,6 @@
                 );
             }
 
-            // --- VIEW: LOGIN ---
             if (view === 'login') return (
                 <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
                     <div className="fixed top-4 right-4 z-[200] space-y-2">
@@ -1704,7 +1774,6 @@
                 </div>
             );
 
-            // --- VIEW: DASHBOARD (APP) ---
             return (
                 <ErrorBoundary>
                     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans relative">
@@ -1779,7 +1848,7 @@
                                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mb-4">
                                         <div className="flex justify-between text-sm mb-1">
                                             <span className="text-slate-500">Base ({calcState.baseLabel})</span>
-                                            <span className="font-bold text-slate-700">{calcState.basePrice.toFixed(2)} DH</span>
+                                            <span className="font-bold text-slate-700">{formatMoney(calcState.basePrice)} DH</span>
                                         </div>
                                         <div className="flex items-center gap-2 mt-3">
                                             <div className="grow">
@@ -1791,7 +1860,7 @@
                                     <div className="text-center">
                                         <div className="text-xs text-slate-400 font-bold uppercase mb-1">Prix Final</div>
                                         <div className="text-4xl font-black text-blue-600 tracking-tight">
-                                            {(calcState.basePrice * (1 - (parseFloat(extraDiscount)||0)/100)).toFixed(2)} <span className="text-sm">DH</span>
+                                            {formatMoney(calcState.basePrice * (1 - (parseFloat(extraDiscount)||0)/100))} <span className="text-sm">DH</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1801,14 +1870,94 @@
                         {showQuoteProductModal && (
                             <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade">
                                 <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full h-[80vh] flex flex-col relative overflow-hidden">
-                                    <button onClick={() => setShowQuoteProductModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 z-10"><Icon name="X" size={24}/></button>
+                                    <button onClick={() => { setShowQuoteProductModal(false); setIsManualItem(false); }} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 z-10"><Icon name="X" size={24}/></button>
                                     <div className="p-6 bg-slate-50 border-b border-slate-200">
-                                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-800"><Icon name="Search" /> Ajouter un produit au devis</h3>
-                                        <input autoFocus className="w-full p-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Rechercher un produit..." value={quoteSearchQuery} onChange={e => setQuoteSearchQuery(e.target.value)} />
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h3 className="font-bold text-lg flex items-center gap-2 text-slate-800"><Icon name="Search" /> Ajouter un produit au devis</h3>
+                                            {!isManualItem && <button onClick={() => setIsManualItem(true)} className="text-xs bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg font-bold hover:bg-orange-200 transition-colors flex items-center gap-1 shadow-sm"><Icon name="Edit3" size={14}/> Saisie Libre</button>}
+                                        </div>
+                                        {!isManualItem && <input autoFocus className="w-full p-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Rechercher un produit..." value={quoteSearchQuery} onChange={e => setQuoteSearchQuery(e.target.value)} />}
                                     </div>
                                     
                                     <div className="flex-1 overflow-y-auto p-6 space-y-2">
-                                        {selectedProductForQuote ? (
+                                        {isManualItem ? (
+                                            <div className="bg-orange-50 p-6 rounded-2xl border border-orange-100 animate-fade">
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div>
+                                                        <h4 className="font-bold text-lg text-slate-800 flex items-center gap-2"><Icon name="Edit3"/> Saisie Libre</h4>
+                                                        <p className="text-sm text-slate-500">Ajouter un article hors catalogue</p>
+                                                    </div>
+                                                    <button onClick={() => setIsManualItem(false)} className="text-sm text-blue-600 underline">Retour à la recherche</button>
+                                                </div>
+                                                
+                                                <div className="grid gap-4 mb-4">
+                                                    <div>
+                                                        <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Désignation</label>
+                                                        <input className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-orange-400" value={manualItemForm.name} onChange={e => setManualItemForm({...manualItemForm, name: e.target.value})} placeholder="Nom de l'article" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Conditionnement (Optionnel)</label>
+                                                        <input className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-orange-400" value={manualItemForm.packaging} onChange={e => setManualItemForm({...manualItemForm, packaging: e.target.value})} placeholder="Ex: Unité, Forfait..." />
+                                                    </div>
+                                                    
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="text-xs font-bold uppercase text-slate-500 block mb-1">TVA</label>
+                                                            <select className="w-full p-2 border rounded-lg bg-white outline-none focus:ring-2 focus:ring-orange-400" value={manualItemForm.isTaxable ? 'yes' : 'no'} onChange={e => setManualItemForm({...manualItemForm, isTaxable: e.target.value === 'yes'})}>
+                                                                <option value="no">Exonéré (0%)</option>
+                                                                <option value="yes">TVA (20%)</option>
+                                                            </select>
+                                                        </div>
+                                                        {manualItemForm.isTaxable && (
+                                                            <div>
+                                                                <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Prix saisi en</label>
+                                                                <select className="w-full p-2 border rounded-lg bg-white outline-none focus:ring-2 focus:ring-orange-400" value={manualItemForm.isTTC ? 'ttc' : 'ht'} onChange={e => setManualItemForm({...manualItemForm, isTTC: e.target.value === 'ttc'})}>
+                                                                    <option value="ht">HT</option>
+                                                                    <option value="ttc">TTC</option>
+                                                                </select>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Prix Unitaire</label>
+                                                            <input type="number" step="0.01" className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-orange-400" value={manualItemForm.price} onChange={e => setManualItemForm({...manualItemForm, price: parseFloat(e.target.value) || 0})} />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Quantité</label>
+                                                            <input type="number" min="1" className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-orange-400" value={manualItemForm.qty} onChange={e => setManualItemForm({...manualItemForm, qty: parseFloat(e.target.value) || 1})} />
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="mb-4">
+                                                        <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Remise / Majoration</label>
+                                                        <div className="flex gap-2">
+                                                            <input type="number" step="0.1" className="flex-1 p-2 border rounded-lg outline-none focus:ring-2 focus:ring-orange-400" placeholder="Valeur" value={manualItemForm.discountVal} onChange={e => setManualItemForm({...manualItemForm, discountVal: parseFloat(e.target.value) || 0})} />
+                                                            <select className="p-2 border rounded-lg bg-white outline-none" value={manualItemForm.discountType} onChange={e => setManualItemForm({...manualItemForm, discountType: e.target.value})}>
+                                                                <option value="percent">%</option>
+                                                                <option value="amount">DH</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="bg-white p-3 rounded-xl border border-orange-200 flex justify-between items-center mb-4">
+                                                        <span className="text-xs font-bold text-slate-500 uppercase">Prix Net Unitaire (HT)</span>
+                                                        <span className="font-bold text-lg text-slate-700">
+                                                            {(() => {
+                                                                let p = manualItemForm.price;
+                                                                if (manualItemForm.isTaxable && manualItemForm.isTTC) p = p / 1.2;
+                                                                if(manualItemForm.discountType === 'percent') p = p * (1 - manualItemForm.discountVal/100);
+                                                                else p = p - manualItemForm.discountVal;
+                                                                return formatMoney(p);
+                                                            })()} DH
+                                                        </span>
+                                                    </div>
+
+                                                    <button onClick={addManualQuoteItem} className="w-full bg-orange-600 text-white py-3 rounded-xl font-bold hover:bg-orange-700 transition-colors shadow-md">Valider l'ajout manuel</button>
+                                                </div>
+                                            </div>
+                                        ) : selectedProductForQuote ? (
                                             <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
                                                 <div className="flex justify-between items-start mb-4">
                                                     <div>
@@ -1847,7 +1996,6 @@
                                                     <p className="text-[10px] text-slate-400 mt-1">Valeur positive = Remise. Valeur négative (ex: -10) = Majoration.</p>
                                                 </div>
 
-                                                {/* NOUVEAU : Affichage Prix Net Instantané */}
                                                 <div className="bg-slate-100 p-3 rounded-xl border border-slate-200 mb-4 flex justify-between items-center">
                                                     <span className="text-xs font-bold text-slate-500 uppercase">Prix Net Unitaire</span>
                                                     <span className="font-bold text-lg text-slate-700">
@@ -1855,7 +2003,7 @@
                                                             let p = quoteItemForm.price;
                                                             if(quoteItemForm.discountType === 'percent') p = p * (1 - quoteItemForm.discountVal/100);
                                                             else p = p - quoteItemForm.discountVal;
-                                                            return p.toFixed(2);
+                                                            return formatMoney(p);
                                                         })()} DH
                                                     </span>
                                                 </div>
@@ -1867,7 +2015,7 @@
                                                             let p = quoteItemForm.price;
                                                             if(quoteItemForm.discountType === 'percent') p = p * (1 - quoteItemForm.discountVal/100);
                                                             else p = p - quoteItemForm.discountVal;
-                                                            return (p * quoteItemForm.qty).toFixed(2);
+                                                            return formatMoney(p * quoteItemForm.qty);
                                                         })()} DH
                                                     </span>
                                                 </div>
@@ -2016,34 +2164,30 @@
 
                         <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
                             
-                            {/* SEARCH & QUOTE TABS (UNCHANGED BUT INCLUDED FOR CONTEXT) */}
+                            {/* SEARCH & QUOTE TABS */}
                             {activeTab === 'search' && (
                                 <div className="animate-fade">
                                     {dbMeta && <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2 mb-6 flex justify-between items-center text-xs text-blue-800 animate-fade"><div className="flex gap-4"><span className="font-bold flex items-center gap-1"><Icon name="Clock" size={12}/> MAJ: {dbMeta.date}</span><span className="hidden md:inline">|</span><span className="flex items-center gap-1"><Icon name="User" size={12}/> {dbMeta.user}</span></div><div className="italic opacity-75 hidden md:block">Données synchronisées automatiquement</div></div>}
                                     {dbHistory.length > 0 && <div className="bg-slate-900 text-white py-2 px-4 rounded-lg mb-6 shadow-md border border-slate-700 overflow-hidden relative"><div className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-slate-900 to-transparent w-10 z-10"></div><div className="absolute right-0 top-0 bottom-0 bg-gradient-to-l from-slate-900 to-transparent w-10 z-10"></div><div className="marquee-container"><div className="marquee-content flex gap-8">{(dbHistory || []).map((h, i) => (<span key={i} className="inline-flex items-center gap-2 text-xs font-mono"><span className="text-blue-400">[{h.date}]</span><span className="font-bold text-yellow-400">{h.user}</span>:<span>{h.action}</span><span className="text-slate-600 mx-2">|</span></span>))}</div></div></div>}
                                     
-                                    {/* NOUVELLE DISPOSITION : Grid 4 colonnes (3 pour Rapports, 1 pour Stats) */}
                                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
-                                        {/* SECTION RAPPORTS (Elargie) */}
                                         <div className="lg:col-span-3 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
                                             <h3 className="text-xs font-bold uppercase text-slate-400 mb-4 flex items-center gap-2"><Icon name="BellRing" size={14}/> Dernières Mises à Jour & Rapports</h3>
                                             <div className="space-y-3 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
                                                 {(tarifs || [])
                                                     .filter(t => t.report && (t.report.changed.length > 0 || t.report.added.length > 0 || t.report.removed.length > 0))
-                                                    // FIX SORTING: Use server_modified (ISO) for reliable sorting, fallback to index_date if missing
                                                     .sort((a, b) => {
                                                         const dateA = new Date(a.server_modified || a.index_date || 0);
                                                         const dateB = new Date(b.server_modified || b.index_date || 0);
                                                         return dateB - dateA;
                                                     })
-                                                    .slice(0, 10) // Afficher un peu plus d'éléments vu qu'on a de la place
+                                                    .slice(0, 10)
                                                     .map((t, i) => (
                                                     <div key={i} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 hover:bg-blue-50 transition-colors group">
                                                         <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center font-bold text-blue-600 shrink-0 shadow-sm group-hover:scale-110 transition-transform"><Icon name="FileText" size={18}/></div>
                                                         <div className="flex-1 min-w-0">
                                                             <div className="font-bold text-slate-700 text-sm truncate flex items-center gap-2">
                                                                 {t.name}
-                                                                {/* Badges pour résumer le contenu du rapport */}
                                                                 <div className="flex gap-1">
                                                                     {t.report.changed.length > 0 && <span className="bg-orange-100 text-orange-700 text-[9px] px-1.5 rounded-full font-bold">Modif: {t.report.changed.length}</span>}
                                                                     {t.report.added.length > 0 && <span className="bg-green-100 text-green-700 text-[9px] px-1.5 rounded-full font-bold">Ajout: {t.report.added.length}</span>}
@@ -2064,7 +2208,6 @@
                                                 )}
                                             </div>
                                         </div>
-                                        {/* SECTION STATS (Verticale et Compacte) */}
                                         <div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
                                             <h3 className="text-xs font-bold uppercase text-slate-400 mb-4 flex items-center gap-2"><Icon name="PieChart" size={14}/> Données</h3>
                                             <div className="flex flex-col gap-3 flex-1">
@@ -2103,11 +2246,11 @@
                                                         const isTaxable = res.name && (res.name.trim().startsWith('*') || res.name.trim().endsWith('*'));
                                                         const priceVal = parsePrice(res.price);
                                                         const validPrice = priceVal > 0;
-                                                        const priceHT = validPrice ? priceVal.toFixed(2) : res.price;
-                                                        const priceTTC = validPrice ? (priceVal * 1.20).toFixed(2) : null;
+                                                        const priceHT = validPrice ? formatMoney(priceVal) : res.price;
+                                                        const priceTTC = validPrice ? formatMoney(priceVal * 1.20) : null;
                                                         const t4Rate = res.t4_percentage || 0;
                                                         const basePriceForT4 = isTaxable ? (validPrice ? priceVal * 1.20 : 0) : priceVal;
-                                                        const priceT4 = validPrice ? (basePriceForT4 * (1 - t4Rate/100)).toFixed(2) : null;
+                                                        const priceT4 = validPrice ? formatMoney(basePriceForT4 * (1 - t4Rate/100)) : null;
                                                         const pricesObj = { ht: validPrice ? priceHT : null, ttc: isTaxable ? priceTTC : null, t4: (t4Rate > 0 && validPrice) ? priceT4 : null };
                                                         return (
                                                             <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 hover:border-blue-300 hover:shadow-lg transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 group">
@@ -2162,6 +2305,10 @@
                                                 <label className="text-xs font-bold uppercase text-slate-400">Nom du Client / Société</label>
                                                 <input className="w-full p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-lg" placeholder="Ex: Ets Agricole du Sud..." value={quote.client} onChange={e => setQuote({...quote, client: e.target.value})} />
                                             </div>
+                                            <div className="grid gap-1">
+                                                <label className="text-xs font-bold uppercase text-slate-400">Notes / Conditions (affichées sur le devis)</label>
+                                                <textarea className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-sm" placeholder="Ex: Validité de l'offre 30 jours, Paiement à 60 jours..." value={quote.notes || ''} onChange={e => setQuote({...quote, notes: e.target.value})} rows="2"></textarea>
+                                            </div>
                                         </div>
 
                                         <div className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
@@ -2186,8 +2333,8 @@
                                                                 </div>
                                                                 <div className="flex items-center gap-6">
                                                                     <div className="text-center"><div className="text-[10px] text-slate-400 uppercase font-bold">Qté</div><div className="font-bold text-slate-700">{item.qty}</div></div>
-                                                                    <div className="text-center"><div className="text-[10px] text-slate-400 uppercase font-bold">P.U.</div><div className="font-bold text-slate-700">{item.basePrice.toFixed(2)}</div></div>
-                                                                    <div className="text-right w-24"><div className="text-[10px] text-slate-400 uppercase font-bold">Total HT</div><div className="font-black text-blue-600">{calculateLineTotal(item).toFixed(2)}</div></div>
+                                                                    <div className="text-center"><div className="text-[10px] text-slate-400 uppercase font-bold">P.U.</div><div className="font-bold text-slate-700">{formatMoney(item.basePrice)}</div></div>
+                                                                    <div className="text-right w-24"><div className="text-[10px] text-slate-400 uppercase font-bold">Total HT</div><div className="font-black text-blue-600">{formatMoney(calculateLineTotal(item))}</div></div>
                                                                     <button onClick={() => removeQuoteItem(item.id)} className="text-red-300 hover:text-red-600 transition-colors"><Icon name="Trash2" size={18}/></button>
                                                                 </div>
                                                             </div>
@@ -2202,10 +2349,10 @@
                                                         <div className="text-right">
                                                             <div className="text-slate-500">Total HT</div>
                                                             <div className="font-bold text-slate-800 text-lg">
-                                                                {(quote?.items || []).reduce((acc, item) => {
+                                                                {formatMoney((quote?.items || []).reduce((acc, item) => {
                                                                     if (!item) return acc; // GUARD
                                                                     return acc + calculateLineTotal(item);
-                                                                }, 0).toFixed(2)} DH
+                                                                }, 0))} DH
                                                             </div>
                                                         </div>
                                                         <div className="text-right">
@@ -2220,7 +2367,7 @@
                                                                         totalHT += line;
                                                                         if(item.isTaxable) totalTVA += line * 0.20;
                                                                     });
-                                                                    return (totalHT + totalTVA).toFixed(2);
+                                                                    return formatMoney(totalHT + totalTVA);
                                                                 })()} DH
                                                             </div>
                                                         </div>
@@ -2232,7 +2379,7 @@
                                 </div>
                             )}
 
-                            {/* ONSSA TAB (NEW) */}
+                            {/* ONSSA TAB */}
                             {activeTab === 'onssa' && currentUser.role === 'admin' && (
                                 <div className="max-w-4xl mx-auto space-y-8">
                                     <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
@@ -2240,7 +2387,6 @@
                                             <div>
                                                 <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Icon name="ShieldCheck" className="text-green-600"/> Agréments ONSSA (Excel)</h2>
                                                 <p className="text-sm text-slate-500 mt-1">Comparateur de listes officielles pour la veille réglementaire.</p>
-                                                <p className="text-xs text-slate-400 mt-1 italic">Format attendu: Région (A), Province (B), Ville (C), Nom (D), Adresse (E)</p>
                                             </div>
                                             {onssaData.report && <button onClick={generateOnssaReportPDF} className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 hover:bg-slate-900"><Icon name="FileDown" size={16}/> Rapport PDF</button>}
                                         </div>
@@ -2260,7 +2406,7 @@
                                                 <div className="bg-white p-3 rounded-full shadow-sm text-blue-500 mb-3"><Icon name="RefreshCw" size={24} className={isOnssaAnalyzing ? "animate-spin" : ""}/></div>
                                                 <h3 className="font-bold text-blue-800 mb-1">Nouvelle Liste (Excel)</h3>
                                                 <p className="text-xs text-blue-400 mb-4">{onssaData.newList.length > 0 ? `${onssaData.newList.length} revendeurs (Date: ${onssaData.newDate})` : "En attente de fichier..."}</p>
-                                                <button onClick={() => onssaNewInputRef.current.click()} disabled={isOnssaAnalyzing || onssaData.baseList.length === 0} className="w-full bg-blue-600 text-white py-2 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-blue-200"><Icon name="GitCompare"/> Comparer (XLSX)</button>
+                                                <button onClick={() => onssaNewInputRef.current.click()} disabled={isOnssaAnalyzing || onssaData.baseList.length === 0} className="w-full bg-blue-600 text-white py-2 rounded-xl font-bold text-sm hover:bg-blue-700 flex items-center justify-center gap-2 shadow-lg shadow-blue-200"><Icon name="GitCompare"/> Comparer (XLSX)</button>
                                                 <input type="file" ref={onssaNewInputRef} accept=".xlsx, .xls" className="hidden" onChange={(e) => handleOnssaExcel(e, 'new')}/>
                                             </div>
                                         </div>
@@ -2292,7 +2438,6 @@
                                                     </div>
                                                 </div>
 
-                                                {/* FILTRE RÉGIONS */}
                                                 <div className="bg-slate-100 p-4 rounded-2xl mb-6 border border-slate-200">
                                                     <div className="flex justify-between items-center mb-3">
                                                         <h4 className="font-bold text-slate-700 text-sm flex items-center gap-2"><Icon name="Filter" size={16}/> Filtrer Rapport par Région</h4>
@@ -2309,13 +2454,6 @@
                                                         ))}
                                                     </div>
                                                 </div>
-
-                                                <div className="space-y-6">
-                                                    {/* We show raw numbers here, PDF will be filtered */}
-                                                    <div className="text-center text-xs text-slate-400 italic mb-4">
-                                                        Les tableaux ci-dessous montrent un aperçu global. Utilisez le bouton "Rapport PDF" pour voir le détail filtré par région.
-                                                    </div>
-                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -2324,7 +2462,7 @@
 
                             {/* ADMIN TAB */}
                             {activeTab === 'admin' && currentUser.role === 'admin' && (
-                                <div className="animate-fade grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                                     <div className="lg:col-span-1 space-y-6">
                                         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
                                             <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-800"><Icon name="Settings" /> Paramètres</h3>
@@ -2341,9 +2479,78 @@
                                     <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[600px]"><div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-bold text-lg text-slate-800">Indexation</h3><div className="flex gap-2"><button onClick={handleDeleteAllTarifs} className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 transition-colors"><Icon name="Trash2" size={14}/> Tout Supprimer</button><button onClick={() => { setAdminUploadMode('new'); setShowAdminUploadModal(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-200 transition-all active:scale-95"><Icon name="Plus"/> Gestion Tarifs</button><button onClick={() => handleSyncFiches()} disabled={syncStatus === 'working'} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-blue-200 transition-all active:scale-95 disabled:opacity-50"><Icon name={syncStatus === 'working' ? "Loader2" : "RefreshCw"} className={syncStatus === 'working' ? "animate-spin" : ""}/> Scan/Sync Fiches</button></div></div><div className="flex-1 overflow-auto p-0"><table className="w-full text-sm text-left"><thead className="bg-white sticky top-0 shadow-sm text-slate-500 font-bold text-[10px] uppercase"><tr><th className="p-4">Fichier</th><th className="p-4">Type</th><th className="p-4 text-center">Info</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-50">{(tarifs || []).map(t => t && (<tr key={t.id} className="hover:bg-blue-50/30 group"><td className="p-4 font-bold text-slate-700">{t.name}</td><td className="p-4"><span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">TARIF</span></td><td className="p-4 text-center"><div className="text-blue-600 font-bold">{(t.products || []).length} produits</div>{t.t4_percentage > 0 && <div className="text-xs text-orange-500 font-bold">T4: -{t.t4_percentage}%</div>}</td><td className="p-4 text-right"><div className="flex justify-end gap-2">{t.report && <button onClick={() => setViewingReport(t.report)} className="p-2 text-orange-500 hover:text-orange-700 bg-orange-50 rounded-lg" title="Voir Rapport Fluctuation"><Icon name="TrendingUp" size={16}/></button>}<button onClick={() => handleDeleteEntry('tarif', t.id, t.name)} className="text-slate-300 hover:text-red-500 transition-colors p-2" title="Supprimer"><Icon name="Trash2" size={16}/></button></div></td></tr>))}{(fiches || []).map(f => f && (<tr key={f.id} className="hover:bg-indigo-50/30 group"><td className="p-4 font-bold text-slate-700">{f.name}</td><td className="p-4"><span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded text-xs font-bold">FICHE</span></td><td className="p-4 text-center text-slate-400">PDF</td><td className="p-4 text-right"><button onClick={() => handleDeleteEntry('fiche', f.id, f.name)} className="text-slate-300 hover:text-red-500 transition-colors p-2" title="Supprimer"><Icon name="Trash2" size={16}/></button></td></tr>))}</tbody></table></div></div></div>
                             )}
 
+                            {/* SECURITY TAB */}
+                            {activeTab === 'security' && currentUser.role === 'admin' && (
+                                <div className="max-w-4xl mx-auto space-y-8">
+                                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                                        <h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Icon name="Shield" /> Demandes d'autorisation ({(pendingRequests || []).length})</h3>
+                                        {(!pendingRequests || pendingRequests.length === 0) ? (
+                                            <div className="text-center py-8 text-slate-400 italic text-sm">Aucune demande en attente.</div>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                {(pendingRequests || []).map((req, i) => (
+                                                    <div key={i} className="flex flex-col md:flex-row items-center justify-between bg-orange-50 p-4 rounded-2xl border border-orange-100 gap-4">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="w-10 h-10 bg-orange-200 text-orange-700 rounded-full flex items-center justify-center font-bold"><Icon name="User"/></div>
+                                                            <div>
+                                                                <div className="font-bold text-slate-800">{req.user} <span className="text-xs font-normal text-slate-500">({req.login})</span></div>
+                                                                <div className="text-xs font-mono text-slate-500 bg-white px-2 py-1 rounded border border-orange-200 mt-1 max-w-[250px] truncate" title={req.deviceId}>{req.deviceId}</div>
+                                                                <div className="text-[10px] text-slate-400 mt-1">{req.date}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex gap-2 w-full md:w-auto">
+                                                            <button onClick={() => handleRejectDevice(req)} className="flex-1 md:flex-none px-4 py-2 bg-white border border-slate-200 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-xl font-bold text-xs transition-colors">Rejeter</button>
+                                                            <button onClick={() => handleApproveDevice(req)} className="flex-1 md:flex-none px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-xl font-bold text-xs shadow-lg shadow-green-200 transition-colors">Autoriser</button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* AJOUT MANUEL APPAREIL */}
+                                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                                        <h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Icon name="PlusCircle" /> Ajouter un appareil manuellement</h3>
+                                        <div className="flex flex-col md:flex-row gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                            <div className="flex-1">
+                                                <label className="text-xs font-bold uppercase text-slate-400 block mb-1">ID Appareil (Reçu du collaborateur)</label>
+                                                <input value={manualAddId} onChange={e => setManualAddId(e.target.value)} className="w-full p-3 border rounded-xl text-sm font-mono" placeholder="dev_..." />
+                                            </div>
+                                            <div className="flex-1">
+                                                <label className="text-xs font-bold uppercase text-slate-400 block mb-1">Nom Utilisateur</label>
+                                                <input value={manualAddName} onChange={e => setManualAddName(e.target.value)} className="w-full p-3 border rounded-xl text-sm" placeholder="Ex: Jean Dupont" />
+                                            </div>
+                                            <div className="flex items-end">
+                                                <button onClick={handleManualAddDevice} className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-green-700 w-full md:w-auto">Valider</button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 opacity-80">
+                                        <h3 className="font-bold text-lg mb-6 flex items-center gap-2 text-slate-500"><Icon name="Smartphone" /> Appareils Autorisés ({(authorizedDevices || []).length})</h3>
+                                        <div className="max-h-60 overflow-y-auto space-y-2">
+                                            {(authorizedDevices || []).map((dev, i) => {
+                                                const devId = typeof dev === 'string' ? dev : dev.id;
+                                                const devUser = typeof dev === 'object' ? dev.user : 'Ancien Appareil';
+                                                const devLogin = typeof dev === 'object' ? dev.login : '';
+                                                return (
+                                                    <div key={i} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                                        <div className="flex flex-col">
+                                                            {devUser !== 'Ancien Appareil' && <div className="font-bold text-slate-800 text-sm mb-1">{devUser} <span className="text-slate-400 font-normal text-xs">({devLogin})</span></div>}
+                                                            <div className="font-mono text-xs text-slate-600 truncate max-w-[200px] md:max-w-xs">{devId}</div>
+                                                        </div>
+                                                        <button onClick={() => handleRevokeDevice(dev)} className="text-xs font-bold text-red-400 hover:text-red-600 flex items-center gap-1"><Icon name="XCircle" size={14}/> Révoquer</button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* USERS TAB */}
                             {activeTab === 'users' && currentUser.role === 'admin' && (
-                                <div className="max-w-xl mx-auto space-y-8 animate-fade">
+                                <div className="max-w-xl mx-auto space-y-8">
                                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
                                         <h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Icon name={editingUserIdx !== null ? "Edit" : "UserPlus"}/> {editingUserIdx !== null ? "Modifier" : "Créer un accès"}</h3>
                                         <form onSubmit={handleUserSubmit} className="grid gap-4">
@@ -2354,19 +2561,25 @@
                                     </div>
                                     <div className="space-y-3">
                                         <h4 className="text-xs font-bold uppercase text-slate-400 pl-4">Utilisateurs</h4>
-                                        {(users || []).map((u, i) => (
-                                            <div key={i} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl group">
-                                                <div className="flex items-center gap-3"><div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${u.role === 'admin' ? 'bg-slate-800' : 'bg-blue-500'}`}>{u.name.charAt(0)}</div><div><div className="font-bold text-slate-800">{u.name}</div><div className="text-xs text-slate-500 font-mono flex items-center gap-2"><span>{u.id}</span><span className="text-slate-300">|</span><button onClick={() => setShowPassword({...showPassword, [i]: !showPassword[i]})} className="flex items-center gap-1 hover:text-blue-600 transition-colors">{showPassword[i] ? u.pass : "••••••"}<Icon name={showPassword[i] ? "EyeOff" : "Eye"} size={10}/></button></div></div></div>
-                                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    {u.id !== 'SUPERADMIN' && (
-                                                        <>
-                                                            <button onClick={() => { setUserFormData({ name: u.name, login: u.id, pass: u.pass, role: u.role }); setEditingUserIdx(i); }} className="p-2 text-blue-400 hover:text-blue-600 bg-blue-50 rounded-lg"><Icon name="Edit2" size={16}/></button>
-                                                            <button onClick={() => { if(confirm('Supprimer ?')) setUsers(users.filter((_, idx) => idx !== i)); }} className="p-2 text-red-400 hover:text-red-600 bg-red-50 rounded-lg"><Icon name="Trash2" size={16}/></button>
-                                                        </>
-                                                    )}
+                                        {(users || []).map((u, i) => {
+                                            if (!u) return null;
+                                            const safeName = u.name || 'Utilisateur';
+                                            const initial = safeName.charAt(0).toUpperCase();
+                                            
+                                            return (
+                                                <div key={i} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl group">
+                                                    <div className="flex items-center gap-3"><div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${u.role === 'admin' ? 'bg-slate-800' : 'bg-blue-500'}`}>{initial}</div><div><div className="font-bold text-slate-800">{safeName}</div><div className="text-xs text-slate-500 font-mono flex items-center gap-2"><span>{u.id}</span><span className="text-slate-300">|</span><button onClick={() => setShowPassword({...showPassword, [i]: !showPassword[i]})} className="flex items-center gap-1 hover:text-blue-600 transition-colors">{showPassword[i] ? u.pass : "••••••"}<Icon name={showPassword[i] ? "EyeOff" : "Eye"} size={10}/></button></div></div></div>
+                                                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        {u.id !== 'SUPERADMIN' && (
+                                                            <>
+                                                                <button onClick={() => { setUserFormData({ name: safeName, login: u.id, pass: u.pass, role: u.role }); setEditingUserIdx(i); }} className="p-2 text-blue-400 hover:text-blue-600 bg-blue-50 rounded-lg"><Icon name="Edit2" size={16}/></button>
+                                                                <button onClick={() => { if(confirm('Supprimer ?')) setUsers(users.filter((_, idx) => idx !== i)); }} className="p-2 text-red-400 hover:text-red-600 bg-red-50 rounded-lg"><Icon name="Trash2" size={16}/></button>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}
